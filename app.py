@@ -134,8 +134,12 @@ lid_height = st.sidebar.number_input("Výška / tloušťka víka (mm)", 10.0, 10
 lid_mass = st.sidebar.number_input("Hmotnost víka (kg)", 0.1, 500.0, 15.0, 0.5)
 
 st.sidebar.header("2) Těžiště víka (od pantu, v zavřeném stavu)")
-cg_x_cm = st.sidebar.number_input("Těžiště X (mm)", 0.0, 3000.0, lid_length * 0.5, 5.0)
-cg_y_cm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, lid_height * 0.5, 5.0)
+cg_x_cm = st.sidebar.number_input(
+    "Těžiště X (mm)", 0.0, 3000.0, float(np.clip(lid_length * 0.5, 0.0, 3000.0)), 5.0
+)
+cg_y_cm = st.sidebar.number_input(
+    "Těžiště Y (mm)", -500.0, 1000.0, float(np.clip(lid_height * 0.5, -500.0, 1000.0)), 5.0
+)
 
 st.sidebar.header("3) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 95)
