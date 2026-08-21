@@ -55,7 +55,7 @@ def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.25, reject_ra
     return best[1], best[0], False
 
 
-def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, min_x_cg=570.0):
+def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     def eqs(v):
         lx, ly = v
         e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
@@ -63,18 +63,15 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, 
         e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return [e1, e2]
 
-    # Upravené odhady: cílít solver do oblasti X > min_x_cg (za těžištěm)
     guesses = [
-        (min_x_cg + 50.0, H_lid_mm * 0.5),
-        (min_x_cg + 100.0, H_lid_mm * 0.2),
-        (min_x_cg, H_lid_mm * 0.8),
-        (L_lid_mm * 0.7, H_lid_mm * 0.5),
-        (L_lid_mm * 0.8, H_lid_mm * 0.3)
+        (Xb_mm + L0_mm * 0.5, Yb_mm + L0_mm * 0.5),
+        (Xb_mm + L0_mm * 0.8, Yb_mm + L0_mm * 0.2),
+        (Xb_mm - L0_mm * 0.2, Yb_mm + L0_mm * 0.8),
+        (L0_mm, 50.0), (50.0, L0_mm), (Xb_mm, Yb_mm + L0_mm),
+        (0.3 * L_lid_mm, 0.3 * H_lid_mm), (0.6 * L_lid_mm, 0.5 * H_lid_mm),
+        (0.5 * L_lid_mm, 0.8 * H_lid_mm)
     ]
-    
-    res_sol, res_res, valid = _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm)
-    # Pokud by solver přesto našel něco před těžištěm, zkusíme to ohlídat
-    return res_sol, res_res, valid
+    return _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm)
 
 
 def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
@@ -146,9 +143,6 @@ Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
-# Minimální X pozice čepu na víku (zda má být za těžištěm, např. > 570 mm)
-min_x_pin = st.sidebar.slider("Vynutit čep hlavní vzpěry za X (mm)", 0.0, lid_length, 570.0, 10.0)
-
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
@@ -183,10 +177,10 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, min_x_pin)
+pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
 
 if pin1 is None:
-    st.error("⚠️ Pro zadanou pozici čepu za touto X souřadnicí nelze najít platné geometrické řešení. Zkuste posunout limit X nebo zasunutou délku.")
+    st.error("⚠️ Pro zadané umístění vany a délku vzpěry neexistuje platné geometrické řešení.")
     st.stop()
 
 lx1, ly1 = pin1
@@ -227,7 +221,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr (S čepem za těžištěm)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
