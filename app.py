@@ -185,9 +185,9 @@ if use_aux:
     c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
 else:
     c2.metric("Síla pomocné vzpěry", "—")
-c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
+c3.metric("Potřebná síla k otevření", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
-c4.metric("Síla do ruky @max", f"{f_max_val:.1f} N", "pomáhá zavírat" if f_max_val < 0 else "tlačí ven")
+c4.metric("Potřebná síla k zavření", f"{f_max_val:.1f} N", "pomáhá zavírat" if f_max_val < 0 else "tlačí ven")
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
