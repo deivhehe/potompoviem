@@ -26,7 +26,7 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.15, reject_radius=2.0):
+def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.25, reject_radius=2.0):
     x_lo, x_hi = -margin * L_lid_mm, (1 + margin) * L_lid_mm
     y_lo, y_hi = -margin * H_lid_mm, (1 + margin) * H_lid_mm
 
@@ -34,7 +34,7 @@ def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.15, reject_ra
     for g0 in guesses:
         sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
         res = np.linalg.norm(info["fvec"])
-        if res > 1e-4:
+        if res > 1e-3:
             continue
         if np.hypot(*sol) < reject_radius:
             continue
@@ -65,10 +65,12 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         return [e1, e2]
 
     guesses = [
-        (Xb_mm + L0_mm * 0.6, Yb_mm + L0_mm * 0.3),
-        (Xb_mm - L0_mm * 0.3, Yb_mm + L0_mm * 0.6),
+        (Xb_mm + L0_mm * 0.5, Yb_mm + L0_mm * 0.5),
+        (Xb_mm + L0_mm * 0.8, Yb_mm + L0_mm * 0.2),
+        (Xb_mm - L0_mm * 0.2, Yb_mm + L0_mm * 0.8),
         (L0_mm, 50.0), (50.0, L0_mm), (Xb_mm, Yb_mm + L0_mm),
-        (0.3 * L_lid_mm, 0.3 * H_lid_mm), (0.6 * L_lid_mm, 0.3 * H_lid_mm),
+        (0.3 * L_lid_mm, 0.3 * H_lid_mm), (0.6 * L_lid_mm, 0.5 * H_lid_mm),
+        (0.5 * L_lid_mm, 0.8 * H_lid_mm)
     ]
     return _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm)
 
@@ -115,7 +117,7 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar (Upravené výchozí hodnoty pro rozumnou sílu vzpěry)
+# UI - Sidebar
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 600.0, 10.0)
@@ -134,7 +136,6 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-# Změněno: Vana posunutá dál od pantu a větší zasunutá délka pro lepší pákový poměr
 Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, float(np.clip(lid_length * 0.25, -1000.0, 3000.0)), 5.0)
 Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, float(np.clip(-lid_height * 1.5, -1000.0, 1000.0)), 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 350.0, 5.0)
@@ -162,6 +163,11 @@ theta_max = np.radians(theta_max_deg)
 n_main = 2
 
 pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+
+if pin1 is None:
+    st.error("⚠️ Pro zadané umístění vany a délku vzpěry neexistuje platné geometrické řešení. Upravte pozici vany nebo zasunutou délku v bočním panelu.")
+    st.stop()
+
 lx1, ly1 = pin1
 
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
