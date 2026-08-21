@@ -14,13 +14,11 @@ G = 9.81  # m/s^2
 # Pomocné fyzikální funkce (pracují v milimetrech pro geometrii)
 # ----------------------------------------------------------------------
 def rotate_mm(lx, ly, theta):
-    """Otočí lokální bod v mm (lx,ly) o úhel theta [rad] kolem pantu [0,0]."""
     c, s = np.cos(theta), np.sin(theta)
     return lx * c - ly * s, lx * s + ly * c
 
 
 def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
-    """Znaménkové rameno síly vzpěry vůči pantu v metrech (pro výpočet momentů)."""
     Xp_mm, Yp_mm = rotate_mm(lx_mm, ly_mm, theta)
     L_mm = np.sqrt((Xp_mm - Xb_mm) ** 2 + (Yp_mm - Yb_mm) ** 2)
     if L_mm < 1e-6:
@@ -117,7 +115,7 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar (vstupy v mm a kg)
+# UI - Sidebar
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 600.0, 10.0)
@@ -157,7 +155,7 @@ theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, the
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Výpočty (v milimetrech a Newtonech)
+# Výpočty
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main = 2
@@ -241,7 +239,7 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie (v milimetrech, upravené limity a mřížka po 100 mm)
+# Vykreslení geometrie s upravenou čitelností fontů a os
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
@@ -253,11 +251,11 @@ def draw_geometry_mm(ax, theta):
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
 
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
-    ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12))
+    ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
     Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
     ax.plot(Xc, Yc, "o", color="red", markersize=10, zorder=6)
-    ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red")
+    ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red", fontsize=9, fontweight='bold')
 
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
     ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
@@ -270,7 +268,6 @@ def draw_geometry_mm(ax, theta):
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
-    # Rozumné ohraničení bez hlubokého propadu do -Y
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
     ax.set_ylim(-150, max(lid_height * 1.5, 300))
@@ -278,11 +275,16 @@ def draw_geometry_mm(ax, theta):
     ax.set_aspect("equal")
     ax.invert_xaxis()
     
-    # Nastavení mřížky a kroků os po 100 mm
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
+    # Rozestupy mřížky po 200 mm, aby se čísla nepřekrývala
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
     
-    ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10)
+    # Optimalizovaná velikost fontů pro čitelnost
+    ax.tick_params(axis='both', labelsize=8)
+    for label in ax.get_xticklabels():
+        label.set_rotation(25)  # mírné natočení, aby se čísla nedotýkala
+
+    ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
     ax.set_xlabel("X (mm)", fontsize=9)
     ax.set_ylabel("Y (mm)", fontsize=9)
     ax.legend(loc="upper left", fontsize=7)
@@ -306,15 +308,15 @@ def draw_force_profile(ax, theta_marker=None):
     if theta_marker is not None:
         ax.plot(np.degrees(theta_marker), F_hand(theta_marker) / G, "o", color="black", markersize=8, zorder=6)
 
+    ax.tick_params(axis='both', labelsize=8)
     ax.set_xlabel("Úhel otevření (°)", fontsize=9)
     ax.set_ylabel("Síla do ruky (kgf)", fontsize=9)
-    ax.set_title("Profil síly do ruky", fontsize=10)
+    ax.set_title("Profil síly do ruky", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
 
 col_geo, col_force = st.columns(2)
-# Oba grafy mají identickou velikost (3.8, 3.4)
 fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
 fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
 
