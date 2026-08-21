@@ -6,7 +6,7 @@ from matplotlib.patches import Polygon
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
 st.title("Vzpěrovač")
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", value=25.0, step=1.0)
 L_lid = st.sidebar.number_input("Délka víka (mm)", value=1000.0, step=10.0)
@@ -53,13 +53,6 @@ def rotate(pt, origin, angle_deg):
     ])
 
 def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
-    """
-    Hlavní vzpěra: 
-    - Při 0° je zasunutá (+ 5mm rezerva) -> délka L_closed = L_ext - stroke + 5
-    - Při max_angle je vysunutá -> délka L_open = L_ext
-    Kružnice 1: stř. B, poloměr L_closed (v zavřeném stavu)
-    Kružnice 2: stř. B otočený o -max_angle, poloměr L_open (v otevřeném stavu rotovaném zpět)
-    """
     L_closed = L_ext - stroke + 5.0
     L_open = L_ext
     
@@ -79,16 +72,16 @@ def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
+    # Bezpečný filtr pro body na víku (X > 0, Y >= -1)
     valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
-    if not valid_points: return None
-    return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+    if not len(valid_points): 
+        return None
+    elif len(valid_points) == 1:
+        return valid_points[0]
+    else:
+        return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
 
 def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
-    """
-    Zadní vzpěra (opačný chod):
-    - Při 0° je vysunutá -> délka L_closed = L_ext
-    - Při max_angle je zasunutá (+ 5mm rezerva) -> délka L_open = L_ext - stroke + 5
-    """
     L_closed = L_ext
     L_open = L_ext - stroke + 5.0
     
@@ -109,9 +102,12 @@ def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
     valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
-    if not valid_points: return None
-    # Pro zadní chceme zpravidla nižší bod blíž k pantu
-    return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
+    if not len(valid_points): 
+        return None
+    elif len(valid_points) == 1:
+        return valid_points[0]
+    else:
+        return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
 
 # Výpočet čepů
 P0_1 = find_lid_mount_main(B1, L_ext1, stroke1, max_angle, H)
@@ -120,7 +116,7 @@ if pocet_vzper == 4:
     P0_2 = find_lid_mount_rear(B2, L_ext2, stroke2, max_angle, H)
 
 if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry.")
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry (je příliš krátká/dlouhá pro daný úhel).")
 elif pocet_vzper == 4 and P0_2 is None:
     st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Změňte pozici zadního čepu na vaně nebo rozměry vzpěry.")
 else:
