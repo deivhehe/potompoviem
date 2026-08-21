@@ -124,17 +124,18 @@ lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 1109.0, 
 lid_height = st.sidebar.number_input("Výška / tloušťka víka (mm)", 10.0, 1000.0, 812.0, 5.0)
 lid_mass = st.sidebar.number_input("Hmotnost víka (kg)", 0.1, 500.0, 180.0, 0.5)
 
-# NOVÉ: Pozice madla od pantu
-handle_pos_mm = st.sidebar.number_input("Vzdálenost madla od pantu (mm)", 50.0, 3000.0, lid_length, 10.0)
+st.sidebar.header("2) Pozice madla (v zavřeném stavu, od pantu)")
+handle_x_mm = st.sidebar.number_input("Madlo X (mm)", 0.0, 3000.0, lid_length, 5.0)
+handle_y_mm = st.sidebar.number_input("Madlo Y (mm)", -500.0, 1000.0, float(lid_height * 0.5), 5.0)
 
-st.sidebar.header("2) Těžiště víka (od pantu, v zavřeném stavu)")
+st.sidebar.header("3) Těžiště víka (od pantu, v zavřeném stavu)")
 cg_x_mm = st.sidebar.number_input("Těžiště X (mm)", 0.0, 3000.0, float(np.clip(lid_length * 0.5, 0.0, 3000.0)), 5.0)
 cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np.clip(lid_height * 0.5, -500.0, 1000.0)), 5.0)
 
-st.sidebar.header("3) Rozsah otevření")
+st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("4) Konfigurace vzpěr")
+st.sidebar.header("5) Konfigurace vzpěr")
 config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = config.startswith("2× hlavní +")
 
@@ -152,10 +153,10 @@ if use_aux:
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm) [info]", 10.0, 1500.0, 120.0, 5.0)
     F_aux_catalog = st.sidebar.number_input("Katalogová síla 1 ks pomocné vzpěry (N)", 50.0, 2000.0, 100.0, 10.0)
 
-st.sidebar.header("5) Cílové síly do ruky")
+st.sidebar.header("6) Cílové síly do ruky")
 target_open_N_input = st.sidebar.slider("Síla na otevření @0° (N)", 5.0, 150.0, 50.0, 5.0)
 
-st.sidebar.header("6) Náhled úhlu")
+st.sidebar.header("7) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
@@ -191,13 +192,19 @@ def Xcg_m(theta):
 def Tg(theta):
     return -lid_mass * G * Xcg_m(theta)
 
-# Páka člověka (převod na metry)
-handle_m = handle_pos_mm * 0.001
+# Účinná páka madla (kolmá vzdálenost od osy rotace/pantu v daném úhlu)
+def handle_moment_arm_m(theta):
+    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
+    # Vektor síly člověka předpokládáme kolmo na rameno madla od pantu
+    r = np.hypot(hx, hy)
+    return r * 0.001 if r > 1e-6 else 1e-6
+
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
+h_arm_0 = handle_moment_arm_m(0.0)
 
 if use_aux and pin2 is not None:
     d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
-    moment_sum_needed = -(Tg(0.0) + target_open_N_input * handle_m)
+    moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
     F_main = (moment_sum_needed - moment_from_aux) / denom if abs(denom) > 1e-9 else 0.0
@@ -205,7 +212,7 @@ if use_aux and pin2 is not None:
 else:
     F_aux = None
     denom = n_main * d1_0
-    F_main = (-(Tg(0.0) + target_open_N_input * handle_m)) / denom if abs(denom) > 1e-9 else 0.0
+    F_main = (-(Tg(0.0) + target_open_N_input * h_arm_0)) / denom if abs(denom) > 1e-9 else 0.0
 
 def F_hand(theta):
     Ts_main = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
@@ -213,13 +220,13 @@ def F_hand(theta):
     if use_aux and pin2 is not None and F_aux is not None:
         Ts_aux = n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
     
-    # Síla na ruku se dělí reálnou vzdáleností madla od pantu (handle_m)
-    return -(Tg(theta) + Ts_main + Ts_aux) / handle_m if handle_m > 0 else 0.0
+    h_arm = handle_moment_arm_m(theta)
+    return -(Tg(theta) + Ts_main + Ts_aux) / h_arm
 
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (s vlivem pozice madla)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (s pozicí madla X/Y)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
@@ -262,8 +269,8 @@ def draw_geometry_mm(ax, theta):
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
-    # Vykreslení pozice madla na víku
-    hx, hy = rotate_mm(handle_pos_mm, 0.0, theta)
+    # Vykreslení pozice madla X/Y
+    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     ax.plot(hx, hy, "go", markersize=9, zorder=7)
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
 
@@ -306,7 +313,7 @@ def draw_force_profile(ax, theta_marker=None):
     ax.tick_params(axis='both', labelsize=8)
     ax.set_xlabel("Úhel otevření (°)", fontsize=9)
     ax.set_ylabel("Síla do ruky (N)", fontsize=9)
-    ax.set_title(f"Profil síly na madle (vzdál. {handle_pos_mm} mm)", fontsize=10, fontweight='bold')
+    ax.set_title(f"Profil síly na madlu [X:{handle_x_mm}, Y:{handle_y_mm}]", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
