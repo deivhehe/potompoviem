@@ -115,7 +115,7 @@ with tab_design:
                 pen += (min(abs(L_max_angle - L_min_mm), abs(L_max_angle - (L_min_mm + S_mm))))**2 * 10.0
             return (L_0 - L_min_mm)**2 + pen
 
-        x_bounds = (-400.0 if allow else 0.0, L_lid_mm)
+        x_bounds = (-400.0 if allow_behind else 0.0, L_lid_mm)
         res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-500, H_lid_mm + 500)], method='L-BFGS-B')
         if res.success and res.fun < 100.0:
             return res.x, True
@@ -306,7 +306,7 @@ with tab_control:
         c_cgy = st.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(c_hei * 0.5), 5.0, key="c_cgy")
 
     with c_in2:
-        st.subheader("Uložení vzpěr")
+        st.subheader("Uložení vzpěr (čepy na vaně i na víku)")
         c_use_aux = st.checkbox("Zahrnout i pomocné vzpěry", value=True, key="c_useaux")
         
         st.markdown("**Hlavní vzpěra**")
@@ -329,7 +329,6 @@ with tab_control:
     def c_Tg(theta):
         return -c_mas * G * (c_cg_xm * np.cos(theta) - c_cg_ym * np.sin(theta))
 
-    # Zjistíme potřebnou sílu vzpěr na základě rovnováhy
     def c_solve_required_forces():
         def objective(forces):
             if c_use_aux:
