@@ -78,10 +78,11 @@ n_main = 2
 n_aux = 2
 
 def optimize_mechanism():
+    # Optimalizujeme pouze geometrii uložení: [Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2]
     def objective(vars):
-        Xb1, Yb1, lx1, ly1, Fm, Xb2, Yb2, lx2, ly2, Fa = vars
+        Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2 = vars
         
-        # Geometrické rovnice pro délky vzpěr
+        # Geometrické rezidua délek vzpěr
         e1 = (lx1 - Xb1)**2 + (ly1 - Yb1)**2 - L0_1**2
         Xp1_max, Yp1_max = rotate_mm(lx1, ly1, theta_max)
         e2 = (Xp1_max - Xb1)**2 + (Yp1_max - Yb1)**2 - (L0_1 + S1)**2
@@ -90,14 +91,13 @@ def optimize_mechanism():
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         e4 = (Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2 - (L0_2 + S2)**2
 
-        # Momentové rovnice pro splnění přesných sil do ruky
+        # Analytický výpočet sil F_main a F_aux pro danou geometrii
         cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
         Tg_0 = -lid_mass * G * cg_xm
         h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
         
         d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
         d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
-        F_hand_0 = -(Tg_0 + n_main * Fm * d1_0 + n_aux * Fa * d2_0) / h_arm_0
         
         Tg_max = -lid_mass * G * (cg_xm * np.cos(theta_max) - cg_ym * np.sin(theta_max))
         hx_m, hy_m = rotate_mm(handle_x_mm, handle_y_mm, theta_max)
@@ -105,36 +105,75 @@ def optimize_mechanism():
         
         d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
         d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
-        F_hand_max = -(Tg_max + n_main * Fm * d1_max + n_aux * Fa * d2_max) / h_arm_max
 
-        # Vysoké váhy pro přesné trefení požadovaných sil
-        err_open = 100.0 * (F_hand_0 - target_open_N)**2
-        err_close = 100.0 * (F_hand_max - target_close_N)**2
-        err_geom = 10.0 * (e1**2 + e2**2 + e3**2 + e4**2)
+        # Sestavení soustavy rovnic pro síly [Fm, Fa]
+        # A * [Fm, Fa]^T = B
+        A = np.array([
+            [n_main * d1_0, n_aux * d2_0],
+            [n_main * d1_max, n_aux * d2_max]
+        ])
+        B = np.array([
+            -(Tg_0 + target_open_N * h_arm_0),
+            -(Tg_max + target_close_N * h_arm_max)
+        ])
+        
+        try:
+            Fm, Fa = np.linalg.solve(A, B)
+        except np.linalg.LinAlgError:
+            return 1e6
+            
+        # Penalizace za záporné nebo příliš velké síly vzpěr
+        penalty_forces = 0.0
+        if Fm < 100 or Fm > 2500: penalty_forces += (Fm - 500)**2 * 0.01
+        if Fa < 100 or Fa > 2500: penalty_forces += (Fa - 500)**2 * 0.01
 
-        return err_geom + err_open + err_close
+        return (e1**2 + e2**2 + e3**2 + e4**2) * 10.0 + penalty_forces
 
-    x0 = [400.0, -150.0, 700.0, 500.0, 400.0, 100.0, -100.0, 200.0, 150.0, 250.0]
+    x0 = [500.0, -100.0, 600.0, 400.0, 200.0, -200.0, 300.0, 200.0]
     bounds = [
-        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height), (50, 3000),
-        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height), (50, 3000)
+        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height),
+        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height)
     ]
 
     res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 3000})
     return res.x if res.success else x0
 
 opt_vars = optimize_mechanism()
-Xb1, Yb1, lx1, ly1, F_main, Xb2, Yb2, lx2, ly2, F_aux = opt_vars
+Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2 = opt_vars
+
+# Dopočítání finálních sil přesnou lineární soustavou
+cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
+Tg_0 = -lid_mass * G * cg_xm
+h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
+d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
+d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
+
+Tg_max = -lid_mass * G * (cg_xm * np.cos(theta_max) - cg_ym * np.sin(theta_max))
+hx_m, hy_m = rotate_mm(handle_x_mm, handle_y_mm, theta_max)
+h_arm_max = np.hypot(hx_m, hy_m) * 0.001
+d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
+d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
+
+A_final = np.array([
+    [n_main * d1_0, n_aux * d2_0],
+    [n_main * d1_max, n_aux * d2_max]
+])
+B_final = np.array([
+    -(Tg_0 + target_open_N * h_arm_0),
+    -(Tg_max + target_close_N * h_arm_max)
+])
+
+try:
+    F_main, F_aux = np.linalg.solve(A_final, B_final)
+except np.linalg.LinAlgError:
+    F_main, F_aux = 500.0, 500.0
 
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 
-def Xcg_m(theta):
+def Tg(theta):
     cg_xm = cg_x_mm * 0.001
     cg_ym = cg_y_mm * 0.001
-    return cg_xm * np.cos(theta) - cg_ym * np.sin(theta)
-
-def Tg(theta):
-    return -lid_mass * G * Xcg_m(theta)
+    return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
 
 def handle_moment_arm_m(theta):
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
