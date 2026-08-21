@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Kompletní metriky a profil síly")
+st.title("Vzpěrovač - Pevné zasunuté délky")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
@@ -23,8 +23,7 @@ DEFAULT_VALUES = {
     "B_y2": -301.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
-    "F2_user": 150.0,
-    "target_dead_angle": 45.0
+    "F2_user": 150.0
 }
 
 for key, value in DEFAULT_VALUES.items():
@@ -36,7 +35,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -45,9 +44,7 @@ H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", step=10.0, key=
 C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", step=10.0, key="C_x")
 C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", step=10.0, key="C_y")
 C_0 = np.array([C_x, C_y]) 
-max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, key="max_angle")
-
-target_dead_angle = st.sidebar.slider("Cílený mrtvý bod zadní vzpěry (°)", 20.0, 70.0, key="target_dead_angle")
+max_angle = st.slider("Max. úhel otevření (°)", 45, 110, key="max_angle")
 
 pocet_vzper_radio = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=0 if st.session_state["pocet_vzper"]==2 else 1, key="pocet_vzper_radio")
 st.session_state["pocet_vzper"] = pocet_vzper_radio
@@ -85,37 +82,31 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def get_lid_mount(B, L_closed, stroke, max_angle, H, is_rear=False, target_ang=45.0):
-    if not is_rear:
-        L_open = L_closed + stroke
-        B_rot = rotate(B, H, -max_angle)
-        d = np.linalg.norm(B_rot - B)
-        if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
-            return np.array([300.0, H_lid])
-        a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
-        val = L_closed**2 - a**2
-        h = np.sqrt(max(0, val))
-        P2 = B + a * (B_rot - B) / d
-        x3 = P2[0] + h * (B_rot[1] - B[1]) / d
-        y3 = P2[1] - h * (B_rot[0] - B[0]) / d
-        x4 = P2[0] - h * (B_rot[1] - B[1]) / d
-        y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-        candidates = [np.array([x3, y3]), np.array([x4, y4])]
-        valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
-        return max(valid, key=lambda p: p[0]) if valid else candidates[0]
-    else:
-        v_dir = H - B
-        v_len = np.linalg.norm(v_dir)
-        if v_len > 0:
-            u_dir = v_dir / v_len
-            P_dead_global = H + u_dir * L_closed
-            return rotate(P_dead_global, H, -target_ang)
-        return np.array([100.0, 50.0])
+# Výpočet čepu na víku tak, aby v zavřeném stavu (0°) byla délka PŘESNĚ L_closed
+def get_lid_mount_exact(B, L_closed, stroke, max_angle, H, is_rear=False):
+    L_open = L_closed + stroke
+    B_rot = rotate(B, H, -max_angle)
+    d = np.linalg.norm(B_rot - B)
+    if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
+        return np.array([300.0, H_lid])
+    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
+    val = L_closed**2 - a**2
+    h = np.sqrt(max(0, val))
+    P2 = B + a * (B_rot - B) / d
+    x3 = P2[0] + h * (B_rot[1] - B[1]) / d
+    y3 = P2[1] - h * (B_rot[0] - B[0]) / d
+    x4 = P2[0] - h * (B_rot[1] - B[1]) / d
+    y4 = P2[1] + h * (B_rot[0] - B[0]) / d
+    candidates = [np.array([x3, y3]), np.array([x4, y4])]
+    valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
+    if valid:
+        return min(valid, key=lambda p: p[0]) if is_rear else max(valid, key=lambda p: p[0])
+    return candidates[0]
 
-P0_1 = get_lid_mount(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
+P0_1 = get_lid_mount_exact(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
 P0_2 = np.array([0.0, 0.0])
 if pocet_vzper == 4:
-    P0_2 = get_lid_mount(B2, L_closed2, stroke2, max_angle, H, is_rear=True, target_ang=target_dead_angle)
+    P0_2 = get_lid_mount_exact(B2, L_closed2, stroke2, max_angle, H, is_rear=True)
 
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
@@ -139,7 +130,7 @@ L_act2 = np.zeros_like(angles)
 if pocet_vzper == 4:
     d_arms2, L_act2 = get_kinematics(P0_2, B2)
 
-alpha_dead = target_dead_angle
+alpha_dead = 0.0
 if pocet_vzper == 4:
     cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
     if len(cross_idx) > 0:
@@ -163,7 +154,7 @@ M_rear = (F2_user * 2) * d_arms2 if pocet_vzper == 4 else np.zeros_like(angles)
 M_net = M_grav - (M_front_act + M_rear)
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success("✅ Model přepočítán – čepy na víku zobrazeny níže!")
+st.success("✅ Model přepočítán – délky vzpěr v zavřeném stavu přesně odpovídají zadaným hodnotám!")
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
 col2.metric("Přední čep víko (X,Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
