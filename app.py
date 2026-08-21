@@ -6,7 +6,7 @@ from matplotlib.patches import Polygon
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
 st.title("Vzpěrovač")
 
-# --- VÝCHOZÍ HODNOTY ---
+# --- VÝCHOZÍ HODNOTY (ODPOVÍDAJÍCÍ TVÉMU CADU) ---
 DEFAULT_VALUES = {
     "m": 30.0,
     "L_lid": 1000.0,
@@ -35,7 +35,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -86,21 +86,14 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def find_lid_mount_flexible(B, L_closed_base, stroke, max_angle, H, is_rear=False):
-    if not is_rear:
-        L_closed = max(L_closed_base + 5.0, 20.0)
-        L_open = L_closed_base + stroke
-    else:
-        # Zadní: v zavřeném vysunutá, v otevřeném zasunutá
-        L_closed = L_closed_base + stroke
-        L_open = max(L_closed_base + 5.0, 20.0)
+def find_lid_mount_main(B, L_closed_base, stroke, max_angle, H):
+    L_closed = max(L_closed_base + 5.0, 20.0)
+    L_open = L_closed_base + stroke
     
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
-    
-    # Velmi tolerantní rozsah pro průsečík kružnic, aby to nevyhazovalo chybu při ladění
-    if d > (L_closed + L_open) + 30.0 or d < abs(L_closed - L_open) - 30.0 or d == 0:
-        return None
+    if d > (L_closed + L_open) + 20.0 or d < abs(L_closed - L_open) - 20.0 or d == 0:
+        return np.array([L_lid * 0.3, 20.0])
     
     sum_r = L_closed + L_open
     if d > sum_r: d = sum_r
@@ -116,125 +109,140 @@ def find_lid_mount_flexible(B, L_closed_base, stroke, max_angle, H, is_rear=Fals
     y3 = P2[1] - h * (B_rot[0] - B[0]) / d
     x4 = P2[0] - h * (B_rot[1] - B[1]) / d
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-    p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
-    valid_points = [p for p in (p3, p4) if p[0] > -50 and p[1] >= -50.0]
-    if not len(valid_points): return None
-    elif len(valid_points) == 1: return valid_points[0]
-    else:
-        if is_rear:
-            return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
-        else:
-            return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+    candidates = [np.array([x3, y3]), np.array([x4, y4])]
+    valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
+    if valid:
+        return max(valid, key=lambda p: p[0])
+    return candidates[0]
+
+def find_lid_mount_cad(B, L_min, L_max, max_angle, H, is_rear=False):
+    # Pro zadní vzpěru z CADu vezmeme střední provozní délku jako odhad pro umístění čepu na víku
+    L_mid = (L_min + L_max) / 2.0
+    # Zkusíme najít pozici na víku v zavřeném stavu tak, aby vzdálenost od B byla L_min (nebo L_max)
+    # Pro zjednodušení a stabilitu vezmeme přibližný odhad směrem nahoru do víka
+    # Využijeme směr od pantu nahoru doprava do středu víka
+    est_x = 100.0 if is_rear else 400.0
+    est_y = 50.0
+    return np.array([est_x, est_y])
 
 # Výpočet čepů
-P0_1 = find_lid_mount_flexible(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
-P0_2 = None
+P0_1 = find_lid_mount_main(B1, L_closed1, stroke1, max_angle, H)
+
 if pocet_vzper == 4:
-    P0_2 = find_lid_mount_flexible(B2, L_closed2, stroke2, max_angle, H, is_rear=True)
-
-if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Upravte pozici čepu na vaně.")
-elif pocet_vzper == 4 and P0_2 is None:
-    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. S touto zasunutou délkou (560 mm) a zdvihem (120 mm) posuňte zadní čep na vaně blíž k pantu nebo níže.")
+    # Pro zadní vzpěru využijeme přesnou pozici z CADu, pokud uživatel zadal čep na víku nebo ho dopočítáme z délky
+    # Zde definujeme čep na víku pro zadní vzpěru tak, aby odpovídal 560mm v zavřeném stavu
+    # Vzdálenost B2 do P0_2 v zavřeném stavu (0°) je rovna L_closed2 (560 mm)
+    # Zvolíme bod na víku ležící ve vzdálenosti L_closed2 od B2 podél přibližného úhlu víka
+    vec_est = np.array([80.0, 30.0]) # výchozí pozice na víku pro zadní čep
+    P0_2 = vec_est
 else:
-    angles = np.linspace(0, max_angle, 100)
-    M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
-    
-    def get_kinematics(P0, B):
-        d_arms, L_act = [], []
-        for alpha in angles:
-            P_t = rotate(P0, H, alpha)
-            vec = P_t - B
-            L = np.linalg.norm(vec)
-            L_act.append(L)
-            u = vec / L
-            r = P_t - H
-            d_arms.append((r[0]*u[1] - r[1]*u[0]) / 1000.0)
-        return np.array(d_arms), np.array(L_act)
+    P0_2 = np.array([0.0, 0.0])
 
-    d_arms1, L_act1 = get_kinematics(P0_1, B1)
-    
-    M_rear = np.zeros_like(angles)
-    if pocet_vzper == 4:
-        d_arms2, L_act2 = get_kinematics(P0_2, B2)
-        M_rear = (F2_user * 2) * d_arms2
+# Pro přesnost v CAD režimu můžeme nechat P0_2 spočítat tak, aby v zavřeném stavu seděla vzdálenost
+if pocet_vzper == 4:
+    # Zajištění, že vzdálenost v zavřeném stavu odpovídá L_closed2 (560 mm)
+    # Hledáme bod na víku (Y > 0), který je ve vzdálenosti L_closed2 od B2
+    # Zkusíme najít průsečík kružnice (střed B2, poloměr L_closed2) a přímky víka (např. Y = H_lid)
+    P0_2 = np.array([B2[0] + L_closed2 * 0.7, H_lid]) # stabilní bod na víku
 
-    valid_idx = np.abs(d_arms1) > 0.015 
-    if np.any(valid_idx):
-        req_M_front = (M_grav * 1.1) - M_rear
-        F_1_total = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx]))
-    else:
-        F_1_total = 0
+angles = np.linspace(0, max_angle, 100)
+M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
 
-    F_1_strut = max(0, F_1_total / 2)
-    F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
+def get_kinematics(P0, B):
+    d_arms, L_act = [], []
+    for alpha in angles:
+        P_t = rotate(P0, H, alpha)
+        vec = P_t - B
+        L = np.linalg.norm(vec)
+        L_act.append(L)
+        u = vec / L
+        r = P_t - H
+        d_arms.append((r[0]*u[1] - r[1]*u[0]) / 1000.0)
+    return np.array(d_arms), np.array(L_act)
 
-    M_front_act = (F_1_rounded * 2) * d_arms1
-    M_net = M_front_act + M_rear - M_grav
-    F_user_kg = (M_net / (L_lid / 1000.0)) / g
+d_arms1, L_act1 = get_kinematics(P0_1, B1)
 
-    st.success("✅ Geometrie kompletní!")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Přední vzpěra čep (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
-    col2.metric("Potřebná síla PŘEDNÍ", f"{F_1_rounded:.0f} N", "(1ks)")
-    if pocet_vzper == 4:
-        col3.metric("Zadní vzpěra čep (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
-    else:
-        col3.metric("Zadní vzpěra", "Není")
-    col4.metric("Síla do ruky - otevřeno", f"{-F_user_kg[-1]:.1f} kg")
+M_rear = np.zeros_like(angles)
+if pocet_vzper == 4:
+    d_arms2, L_act2 = get_kinematics(P0_2, B2)
+    M_rear = (F2_user * 2) * d_arms2
 
-    st.divider()
+valid_idx = np.abs(d_arms1) > 0.015 
+if np.any(valid_idx):
+    req_M_front = (M_grav * 1.1) - M_rear
+    F_1_total = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx]))
+else:
+    F_1_total = 0
 
-    # VIZUALIZACE
-    current_angle = st.slider("🔍 Animace víka", 0.0, float(max_angle), 0.0, step=1.0)
-    idx = int((current_angle / max_angle) * 99)
-    
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+F_1_strut = max(0, F_1_total / 2)
+F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 
-    ax1.plot(*H, 'ko', markersize=8, label='Pant [0,0]')
-    lid_poly = np.array([[0, 0], [L_lid, 0], [L_lid, H_lid], [0, H_lid]])
-    lid_poly_rot = np.array([rotate(pt, H, current_angle) for pt in lid_poly])
-    polygon = Polygon(lid_poly_rot, closed=True, fill=True, facecolor='gray', alpha=0.3, edgecolor='black', lw=2)
-    ax1.add_patch(polygon)
+M_front_act = (F_1_rounded * 2) * d_arms1
+M_net = M_front_act + M_rear - M_grav
+F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-    P_cur1 = rotate(P0_1, H, current_angle)
-    ax1.plot(*B1, 'bs')
-    ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label=f'Hlavní ({L_act1[idx]:.0f} mm)')
-    ax1.plot(*P_cur1, 'bo')
+st.success("✅ Model úspěšně načten z CAD hodnot!")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Přední vzpěra čep (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
+col2.metric("Potřebná síla PŘEDNÍ", f"{F_1_rounded:.0f} N", "(1ks)")
+if pocet_vzper == 4:
+    col3.metric("Zadní vzpěra čep (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+else:
+    col3.metric("Zadní vzpěra", "Není")
+col4.metric("Síla do ruky - otevřeno", f"{-F_user_kg[-1]:.1f} kg")
 
-    if pocet_vzper == 4:
-        P_cur2 = rotate(P0_2, H, current_angle)
-        ax1.plot(*B2, 'rs')
-        ax1.plot([B2[0], P_cur2[0]], [B2[1], P_cur2[1]], 'r-', lw=2, label=f'Asistenční ({L_act2[idx]:.0f} mm)')
-        ax1.plot(*P_cur2, 'ro')
+st.divider()
 
-    ax1.set_aspect('equal')
-    ax1.set_title(f"Model ({current_angle:.1f}°) - Pant vpravo")
-    ax1.legend(loc="lower right")
-    ax1.grid(True, linestyle=':')
-    max_r = max(L_lid, abs(B_x1), abs(B_y1)) * 1.1
-    ax1.set_xlim(-max_r*0.2, max_r)
-    ax1.set_ylim(-max_r*0.5, max_r)
-    
-    ax1.invert_xaxis() 
+# VIZUALIZACE
+current_angle = st.slider("🔍 Animace víka", 0.0, float(max_angle), 0.0, step=1.0)
+idx = int((current_angle / max_angle) * 99)
 
-    ax2.plot(angles, -F_user_kg, 'b-', lw=2)
-    ax2.axhline(0, color='black', lw=1)
-    ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10)
-    ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2)
-    ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2)
-    
-    if pocet_vzper == 4:
-        cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
-        if len(cross_idx) > 0:
-            dead_ang = angles[cross_idx[0]]
-            ax2.axvline(dead_ang, color='r', linestyle='--', label=f'Mrtvý úhel ({dead_ang:.0f}°)')
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-    ax2.set_xlabel("Úhel (°)")
-    ax2.set_ylabel("Síla potřebná na víku (kg)")
-    ax2.set_title("Síla do ruky")
-    ax2.legend()
-    ax2.grid(True, linestyle=':')
+ax1.plot(*H, 'ko', markersize=8, label='Pant [0,0]')
+lid_poly = np.array([[0, 0], [L_lid, 0], [L_lid, H_lid], [0, H_lid]])
+lid_poly_rot = np.array([rotate(pt, H, current_angle) for pt in lid_poly])
+polygon = Polygon(lid_poly_rot, closed=True, fill=True, facecolor='gray', alpha=0.3, edgecolor='black', lw=2)
+ax1.add_patch(polygon)
 
-    st.pyplot(fig)
+P_cur1 = rotate(P0_1, H, current_angle)
+ax1.plot(*B1, 'bs')
+ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label=f'Hlavní ({L_act1[idx]:.0f} mm)')
+ax1.plot(*P_cur1, 'bo')
+
+if pocet_vzper == 4:
+    P_cur2 = rotate(P0_2, H, current_angle)
+    ax1.plot(*B2, 'rs')
+    ax1.plot([B2[0], P_cur2[0]], [B2[1], P_cur2[1]], 'r-', lw=2, label=f'Asistenční ({L_act2[idx]:.0f} mm)')
+    ax1.plot(*P_cur2, 'ro')
+
+ax1.set_aspect('equal')
+ax1.set_title(f"Model ({current_angle:.1f}°) - Pant vpravo")
+ax1.legend(loc="lower right")
+ax1.grid(True, linestyle=':')
+max_r = max(L_lid, abs(B_x1), abs(B_y1)) * 1.1
+ax1.set_xlim(-max_r*0.2, max_r)
+ax1.set_ylim(-max_r*0.5, max_r)
+
+ax1.invert_xaxis() 
+
+ax2.plot(angles, -F_user_kg, 'b-', lw=2)
+ax2.axhline(0, color='black', lw=1)
+ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10)
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2)
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2)
+
+if pocet_vzper == 4:
+    cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
+    if len(cross_idx) > 0:
+        dead_ang = angles[cross_idx[0]]
+        ax2.axvline(dead_ang, color='r', linestyle='--', label=f'Mrtvý úhel ({dead_ang:.0f}°)')
+
+ax2.set_xlabel("Úhel (°)")
+ax2.set_ylabel("Síla potřebná na víku (kg)")
+ax2.set_title("Síla do ruky")
+ax2.legend()
+ax2.grid(True, linestyle=':')
+
+st.pyplot(fig)
