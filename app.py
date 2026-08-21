@@ -33,9 +33,6 @@ def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow
         e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return [e1, e2]
 
-    # Rozšíříme počáteční odhady i pro prostor za pantem (negativní X), pokud je povolen
-    x_min_guess = -300.0 if allow_behind_hinge else 0.0
-    
     guesses = [
         (L_lid_mm * 0.5, H_lid_mm * 0.5),
         (-100.0, H_lid_mm * 0.5),
@@ -50,7 +47,6 @@ def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow
             if allow_behind_hinge or lx >= 0.0:
                 return sol, True
                 
-    # Záložní optimalizační hledání pro případ složitější vazby
     def obj(v):
         lx, ly = v
         e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
@@ -99,20 +95,26 @@ st.sidebar.header("5) Konfigurace vzpěr")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
-st.sidebar.header("6) Hlavní vzpěra")
+if use_aux:
+    st.sidebar.header("6) Poměr sil vzpěr")
+    force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
+else:
+    force_ratio = 50
+
+st.sidebar.header("7) Hlavní vzpěra")
 Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
 Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
 if use_aux:
-    st.sidebar.header("7) Pomocná vzpěra (konzolka)")
+    st.sidebar.header("8) Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
     L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
-st.sidebar.header("8) Náhled úhlu")
+st.sidebar.header("9) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
@@ -123,7 +125,7 @@ theta_max = np.radians(theta_max_deg)
 n_main = 2
 n_aux = 2
 
-# Výpočet pozic čepů na víku (hlavní je striktně na víku, pomocná může být i na konzolce za pantem)
+# Výpočet pozic čepů na víku
 pin1, ok1 = solve_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, allow_behind_hinge=False)
 if not ok1:
     st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu.")
@@ -151,11 +153,16 @@ def solve_forces():
             Fm, Fa = forces
             if Fm < 10 or Fa < 10:
                 return 1e9
+            # Penalizace na dodržení poměru sil dle slideru
+            ratio_actual = Fm / (Fm + Fa + 1e-6)
+            ratio_target = force_ratio / 100.0
+            ratio_penalty = (ratio_actual - ratio_target)**2 * 100000.0
         else:
             Fm = forces[0]
             if Fm < 10:
                 return 1e9
             Fa = 0.0
+            ratio_penalty = 0.0
         
         err = 0.0
         for th in np.linspace(0, theta_max, 5):
@@ -167,7 +174,7 @@ def solve_forces():
                 moment_vzpěr = n_main * Fm * d1
             moment_tíže = -Tg(th)
             err += (moment_vzpěr - moment_tíže)**2
-        return err
+        return err + ratio_penalty
 
     if use_aux:
         res = minimize(objective, [500.0, 500.0], bounds=[(10, 5000), (10, 5000)], method='L-BFGS-B')
@@ -196,7 +203,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr víka (vč. konzolky za pantem)")
+st.title("🔧 Návrh plynových vzpěr víka (s regulací poměru sil)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
