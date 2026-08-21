@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
-st.title("Vzpěrovač - CAD Synchronizovaný výpočet")
+st.title("Vzpěrovač - CAD Synchronizovaný výpočet (Pevné délky)")
 
 # --- UI - BOČNÍ PANEL ---
 st.sidebar.header("1. Parametry víka")
@@ -72,15 +72,11 @@ alpha_cg_over = angles_fine[cg_zero_idx]
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # GEOMETRICKÁ VAZBA PRO SOLIDWORKS:
-    # V okamžiku, kdy víko dosáhne úhlu alpha_cg_over (přechod těžiště), 
-    # osa pomocné vzpěry musí procházet pantem [0,0]. 
-    # Z toho vypočítáme globální pozici čepu a otočením zpět získáme P2 v zavřeném stavu (0°).
+    # Využijeme zadanou L_closed2 jako poloměr pro průchod pantem v okamžiku přechodu těžiště
     v_dir = np.array([0.0, 0.0]) - B2
     v_len = np.linalg.norm(v_dir)
     if v_len > 0:
         u_dir = v_dir / v_len
-        # Vzdálenost od pantu [0,0] v okamžiku přechodu musí odpovídat zadané zasunuté délce L_closed2
         P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
         P2 = rotate(P_dead_global, -alpha_cg_over)
     else:
@@ -130,7 +126,7 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie synchronizována se SolidWorksem!")
+st.success("✅ Geometrie synchronizována se zadanými délkami!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
