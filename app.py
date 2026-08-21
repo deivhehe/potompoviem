@@ -5,54 +5,79 @@ import streamlit as st
 
 
 # ============================================================
-# PLYNOVÉ VZPĚRY – NÁVRH GEOMETRIE VÍKA
+# NÁVRH PLYNOVÝCH VZPĚR PRO VÝKLOPNÉ VÍKO
+#
+# Souřadný systém:
+#   pant = [0, 0]
+#   zavřené víko směřuje doleva a nahoru
+#   0° = zavřeno
+#   kladný úhel = otevírání víka po směru hodinových ručiček
+#
+# Tím odpovídá nákres přibližně konstrukci typu SolidWorks:
+#
+#                  levá strana víka
+#        ┌───────────────────────────●
+#        │                           čep
+#        │
+#        │
+#        └───────────────────────────X  pant [0,0]
+#
+# při 90° je víko přibližně svisle nahoru.
 # ============================================================
+
 
 st.set_page_config(
     page_title="Návrh plynových vzpěr",
     layout="wide",
 )
 
-st.title("Návrh a kontrola geometrie plynových vzpěr")
-st.caption(
-    "2D statický model výklopného víka. "
-    "Úhel 0° = zavřeno, kladný směr = otevírání."
-)
-
 
 # ============================================================
-# POMOCNÉ FUNKCE
+# MATEMATIKA
 # ============================================================
 
-def rotate_point(point, angle):
-    """Rotace bodu kolem pantu [0,0]."""
+def rotate_clockwise(point, angle):
+    """
+    Rotace bodu kolem pantu ve směru hodinových ručiček.
+    """
+
     c = math.cos(angle)
     s = math.sin(angle)
 
-    x, y = point
+    x = point[0]
+    y = point[1]
 
     return np.array([
-        c * x - s * y,
-        s * x + c * y
+        c * x + s * y,
+        -s * x + c * y
     ])
+
+
+def rotate_counterclockwise(point, angle):
+    """
+    Inverzní rotace.
+    """
+
+    return rotate_clockwise(point, -angle)
 
 
 def distance(a, b):
     return float(np.linalg.norm(a - b))
 
 
-def cross_2d(r, f):
-    """Moment síly v 2D."""
-    return r[0] * f[1] - r[1] * f[0]
+def cross_2d(a, b):
+    return a[0] * b[1] - a[1] * b[0]
 
 
-def spring_torque(base, lid_point, force):
+def spring_torque(base, lid_pin, force):
     """
     Moment plynové vzpěry kolem pantu.
 
-    Vzpěra tlačí od bodu na víku směrem k bodu na vaně.
+    Vzpěra působí tlakem z bodu na víku směrem
+    k bodu uchycení na vaně.
     """
-    vector = base - lid_point
+
+    vector = base - lid_pin
     length = np.linalg.norm(vector)
 
     if length < 1e-9:
@@ -60,52 +85,63 @@ def spring_torque(base, lid_point, force):
 
     force_vector = force * vector / length
 
-    return cross_2d(lid_point, force_vector)
+    return cross_2d(lid_pin, force_vector)
 
 
 def gravity_torque(cg, angle, mass):
     """
     Moment gravitace kolem pantu.
     """
-    cg_world = rotate_point(cg, angle)
+
+    cg_world = rotate_clockwise(
+        cg,
+        angle
+    )
 
     gravity = np.array([
         0.0,
         -mass * 9.81
     ])
 
-    return cross_2d(cg_world, gravity)
+    return cross_2d(
+        cg_world,
+        gravity
+    )
 
 
-def solve_two_circles(c1, r1, c2, r2):
+def circle_intersections(c1, r1, c2, r2):
     """
-    Průsečík dvou kružnic.
-
-    Používá se pro přesný výpočet čepu hlavní vzpěry.
+    Průsečíky dvou kružnic.
     """
 
     dx = c2[0] - c1[0]
     dy = c2[1] - c1[1]
 
-    d = math.sqrt(dx * dx + dy * dy)
+    d = math.hypot(dx, dy)
 
     if d < 1e-9:
         return []
 
-    if d > r1 + r2:
+    if d > r1 + r2 + 1e-9:
         return []
 
-    if d < abs(r1 - r2):
+    if d < abs(r1 - r2) - 1e-9:
         return []
 
-    a = (r1**2 - r2**2 + d**2) / (2 * d)
+    a = (
+        r1**2
+        - r2**2
+        + d**2
+    ) / (2 * d)
 
-    h_squared = r1**2 - a**2
+    h2 = r1**2 - a**2
 
-    if h_squared < 0:
-        h_squared = 0
+    if h2 < -1e-9:
+        return []
 
-    h = math.sqrt(h_squared)
+    h = math.sqrt(
+        max(0.0, h2)
+    )
 
     xm = c1[0] + a * dx / d
     ym = c1[1] + a * dy / d
@@ -113,92 +149,249 @@ def solve_two_circles(c1, r1, c2, r2):
     rx = -dy * h / d
     ry = dx * h / d
 
-    p1 = np.array([
-        xm + rx,
-        ym + ry
-    ])
+    return [
+        np.array([
+            xm + rx,
+            ym + ry
+        ]),
+        np.array([
+            xm - rx,
+            ym - ry
+        ])
+    ]
 
-    p2 = np.array([
-        xm - rx,
-        ym - ry
-    ])
 
-    return [p1, p2]
-
-
-def solve_main_pin(base, closed_length, stroke, max_angle):
+def point_on_lid(point, length, height, tolerance=1.0):
     """
-    Výpočet čepu hlavní vzpěry na víku.
+    Kontrola, jestli bod leží uvnitř obdélníku víka.
 
-    V zavřeném stavu:
-        |P - base| = closed_length
+    Víko:
+        X = -length ... 0
+        Y = 0 ... height
 
-    V otevřeném stavu:
-        |R(P) - base| = closed_length + stroke
-
-    Po převedení otevřeného stavu zpět do 0° soustavy
-    vznikne průsečík dvou kružnic.
+    Pant je v pravém dolním rohu [0,0].
     """
 
-    target_length = closed_length + stroke
-
-    # Bod základny převedený do soustavy víka při 0°
-    base_rotated_back = rotate_point(
-        base,
-        -max_angle
+    return (
+        -tolerance <= point[0] <= tolerance
+        and
+        -tolerance <= point[1] <= height + tolerance
+    ) or (
+        -length - tolerance <= point[0] <= 0 + tolerance
+        and
+        0 - tolerance <= point[1] <= height + tolerance
     )
 
-    candidates = solve_two_circles(
+
+def pin_inside_lid(point, length, height):
+    """
+    Přísnější kontrola bodu na ploše víka.
+    """
+
+    return (
+        -length <= point[0] <= 0
+        and
+        0 <= point[1] <= height
+    )
+
+
+# ============================================================
+# HLAVNÍ VZPĚRA
+# ============================================================
+
+def solve_main_pin(
+    base,
+    closed_length,
+    stroke,
+    max_angle,
+    lid_length,
+    lid_height
+):
+    """
+    Najde čep hlavní vzpěry na víku.
+
+    Podmínky:
+
+    při 0°:
+        délka = closed_length
+
+    při max. úhlu:
+        délka = closed_length + stroke
+
+    Navíc musí být čep fyzicky na víku.
+    """
+
+    open_length = (
+        closed_length + stroke
+    )
+
+    # Při otevření:
+    #
+    # |R(P) - A| = open_length
+    #
+    # po převedení zpět do soustavy zavřeného víka:
+    #
+    # |P - R^-1(A)| = open_length
+
+    base_back = rotate_counterclockwise(
+        base,
+        max_angle
+    )
+
+    candidates = circle_intersections(
         base,
         closed_length,
-        base_rotated_back,
-        target_length
+        base_back,
+        open_length
     )
 
-    return candidates
+    physical = [
+        p
+        for p in candidates
+        if pin_inside_lid(
+            p,
+            lid_length,
+            lid_height
+        )
+    ]
+
+    return physical
 
 
-def solve_aux_pin(base, closed_length, dead_angle):
+# ============================================================
+# MRTVÝ BOD CG
+# ============================================================
+
+def calculate_dead_angle(cg):
     """
-    Pomocná vzpěra.
+    Najde úhel, při kterém CG leží na svislé ose pantu.
 
-    Podmínka:
-    v mrtvém bodě musí osa vzpěry procházet přes pant.
+    Ve světových souřadnicích:
+        X_CG = 0
 
-    Proto hledáme bod Q na přímce:
-        base -> pant
+    Pro clockwise rotaci:
 
-    ve vzdálenosti closed_length od základny.
+        X = X0*cos(theta) + Y0*sin(theta)
 
-    Q je pozice čepu na víku v mrtvém bodě.
-    Následně jej otočíme zpět do 0°.
+    tedy:
+
+        tan(theta) = -X0 / Y0
     """
 
-    direction = -base
+    x = cg[0]
+    y = cg[1]
 
-    d = np.linalg.norm(direction)
+    if abs(x) < 1e-9:
+        return 0.0
+
+    if abs(y) < 1e-9:
+
+        if x < 0:
+            return math.pi / 2
+
+        return math.pi / 2
+
+    angle = math.atan2(
+        -x,
+        y
+    )
+
+    # Hledáme první kladné řešení.
+    if angle < 0:
+        angle += math.pi
+
+    return angle
+
+
+# ============================================================
+# POMOCNÁ VZPĚRA
+# ============================================================
+
+def solve_aux_pin(
+    base,
+    closed_length,
+    dead_angle,
+    lid_length,
+    lid_height
+):
+    """
+    Pomocná vzpěra:
+
+    1. Při 0° je plně zasunutá:
+           L = closed_length
+
+    2. V mrtvém bodě CG musí osa vzpěry
+       procházet přesně přes pant [0,0].
+
+    To znamená, že při mrtvém bodě musí být
+    horní čep na přímce:
+
+           base -------- pant
+
+    a zároveň musí být od základny vzdálený
+    přesně closed_length.
+
+    Z tohoto bodu se dopočítá jeho poloha
+    na víku při 0°.
+
+    Pomocná vzpěra NEMÁ povinně daný zdvih.
+    Její délka při otevření je výsledkem geometrie.
+    """
+
+    base_to_hinge = -base
+
+    d = np.linalg.norm(
+        base_to_hinge
+    )
 
     if d < 1e-9:
         return []
 
-    direction = direction / d
-
-    # Dva možné body na přímce.
-    q1 = base + direction * closed_length
-    q2 = base - direction * closed_length
-
-    p1 = rotate_point(
-        q1,
-        -dead_angle
+    direction = (
+        base_to_hinge / d
     )
 
-    p2 = rotate_point(
-        q2,
-        -dead_angle
+    # Bod na přímce base -> pant
+    q1 = (
+        base
+        + direction * closed_length
     )
 
-    return [p1, p2]
+    q2 = (
+        base
+        - direction * closed_length
+    )
 
+    candidates = []
+
+    for q in [q1, q2]:
+
+        # Q je poloha čepu v mrtvém bodě.
+        #
+        # Potřebujeme jeho polohu v zavřeném
+        # souřadném systému.
+
+        pin0 = rotate_counterclockwise(
+            q,
+            dead_angle
+        )
+
+        if pin_inside_lid(
+            pin0,
+            lid_length,
+            lid_height
+        ):
+
+            candidates.append(
+                pin0
+            )
+
+    return candidates
+
+
+# ============================================================
+# VÝPOČET SÍLY DO RUKY
+# ============================================================
 
 def calculate_hand_force(
     angle,
@@ -207,13 +400,8 @@ def calculate_hand_force(
     springs,
     hand_point
 ):
-    """
-    Výpočet síly do ruky.
 
-    Síla do ruky je uvažována jako tečná síla.
-    """
-
-    hand_world = rotate_point(
+    hand_world = rotate_clockwise(
         hand_point,
         angle
     )
@@ -225,7 +413,7 @@ def calculate_hand_force(
     if hand_radius < 1e-9:
         return np.nan
 
-    total_torque = gravity_torque(
+    total_moment = gravity_torque(
         cg,
         angle,
         mass
@@ -233,86 +421,28 @@ def calculate_hand_force(
 
     for spring in springs:
 
-        base = spring["base"]
-        pin = spring["pin"]
-        force = spring["force"]
-
-        pin_world = rotate_point(
-            pin,
+        pin_world = rotate_clockwise(
+            spring["pin"],
             angle
         )
 
-        total_torque += spring_torque(
-            base,
+        total_moment += spring_torque(
+            spring["base"],
             pin_world,
-            force
+            spring["force"]
         )
 
-    # Tangenciální síla:
-    # M = F * r
-    return -total_torque / hand_radius
+    # Síla ruky je tečná.
+    #
+    # Kladná = uživatel musí zvedat.
+    # Záporná = víko samo pomáhá otevírat /
+    # uživatel musí brzdit zavírání.
 
-
-def calculate_profile(
-    angles,
-    cg,
-    mass,
-    springs,
-    hand_point
-):
-
-    result = []
-
-    for angle in angles:
-
-        result.append(
-            calculate_hand_force(
-                angle,
-                cg,
-                mass,
-                springs,
-                hand_point
-            )
-        )
-
-    return np.array(result)
-
-
-def choose_physical_candidate(
-    candidates,
-    lid_length,
-    lid_thickness
-):
-    """
-    Z více matematických řešení vybere řešení,
-    které je nejblíže ploše víka.
-    """
-
-    if not candidates:
-        return None
-
-    def score(p):
-
-        x_penalty = 0
-
-        if p[0] < 0:
-            x_penalty += abs(p[0])
-
-        if p[0] > lid_length:
-            x_penalty += abs(p[0] - lid_length)
-
-        y_penalty = abs(p[1])
-
-        return x_penalty * 5 + y_penalty
-
-    return min(
-        candidates,
-        key=score
-    )
+    return -total_moment / hand_radius
 
 
 # ============================================================
-# SIDEBAR – VSTUPY
+# VSTUPY
 # ============================================================
 
 st.sidebar.header("Geometrie víka")
@@ -320,15 +450,15 @@ st.sidebar.header("Geometrie víka")
 lid_length = st.sidebar.number_input(
     "Délka víka [mm]",
     min_value=100.0,
-    value=1000.0,
+    value=1100.0,
     step=10.0
 )
 
-lid_thickness = st.sidebar.number_input(
-    "Výška / tloušťka víka [mm]",
-    min_value=1.0,
-    value=50.0,
-    step=5.0
+lid_height = st.sidebar.number_input(
+    "Výška víka [mm]",
+    min_value=10.0,
+    value=400.0,
+    step=10.0
 )
 
 mass = st.sidebar.number_input(
@@ -338,18 +468,23 @@ mass = st.sidebar.number_input(
     step=0.5
 )
 
-st.sidebar.subheader("Těžiště CG")
+
+st.sidebar.subheader(
+    "Těžiště CG vůči pantu"
+)
 
 cg_x = st.sidebar.number_input(
     "CG X [mm]",
-    value=500.0,
-    step=10.0
+    value=-550.0,
+    step=10.0,
+    help="Záporná hodnota = CG je směrem doleva od pantu."
 )
 
 cg_y = st.sidebar.number_input(
     "CG Y [mm]",
-    value=0.0,
-    step=10.0
+    value=200.0,
+    step=10.0,
+    help="Kladná hodnota = CG je nad spodní hranou víka."
 )
 
 cg = np.array([
@@ -358,10 +493,10 @@ cg = np.array([
 ])
 
 
-max_angle_deg = st.sidebar.slider(
+max_angle_deg = st.slider(
     "Maximální úhel otevření [°]",
     min_value=10,
-    max_value=170,
+    max_value=150,
     value=90
 )
 
@@ -370,10 +505,14 @@ max_angle = math.radians(
 )
 
 
+# ============================================================
+# KONFIGURACE
+# ============================================================
+
 st.sidebar.header("Konfigurace")
 
 configuration = st.sidebar.radio(
-    "Konfigurace vzpěr",
+    "Vzpěry",
     [
         "2 hlavní vzpěry",
         "2 hlavní + 2 pomocné"
@@ -385,36 +524,38 @@ configuration = st.sidebar.radio(
 # HLAVNÍ VZPĚRA
 # ============================================================
 
-st.sidebar.header("Hlavní vzpěra – 1 ks")
+st.sidebar.header(
+    "Hlavní vzpěra – 1 ks"
+)
 
 main_base_x = st.sidebar.number_input(
-    "Vana X [mm]",
-    value=250.0,
+    "Spodní čep na vaně X [mm]",
+    value=-150.0,
     step=10.0,
-    key="main_x"
+    key="main_base_x"
 )
 
 main_base_y = st.sidebar.number_input(
-    "Vana Y [mm]",
-    value=-250.0,
+    "Spodní čep na vaně Y [mm]",
+    value=-400.0,
     step=10.0,
-    key="main_y"
+    key="main_base_y"
 )
 
 main_closed_length = st.sidebar.number_input(
-    "Zasunutá délka [mm]",
+    "Celková délka při 0° [mm]",
     min_value=20.0,
-    value=400.0,
+    value=450.0,
     step=5.0,
-    key="main_length"
+    help="Délka celé vzpěry v zavřeném stavu."
 )
 
 main_stroke = st.sidebar.number_input(
     "Zdvih [mm]",
     min_value=1.0,
-    value=150.0,
+    value=180.0,
     step=5.0,
-    key="main_stroke"
+    help="Při maximálním otevření bude délka = délka při 0° + zdvih."
 )
 
 
@@ -430,40 +571,37 @@ main_base = np.array([
 
 aux_base = None
 aux_closed_length = None
-aux_stroke = None
 
 if configuration == "2 hlavní + 2 pomocné":
 
-    st.sidebar.header("Pomocná vzpěra – 1 ks")
+    st.sidebar.header(
+        "Pomocná vzpěra – 1 ks"
+    )
 
     aux_base_x = st.sidebar.number_input(
-        "Vana X [mm]",
-        value=100.0,
+        "Spodní čep na vaně X [mm]",
+        value=-950.0,
         step=10.0,
-        key="aux_x"
+        key="aux_base_x"
     )
 
     aux_base_y = st.sidebar.number_input(
-        "Vana Y [mm]",
-        value=-150.0,
+        "Spodní čep na vaně Y [mm]",
+        value=200.0,
         step=10.0,
-        key="aux_y"
+        key="aux_base_y"
     )
 
     aux_closed_length = st.sidebar.number_input(
-        "Zasunutá délka [mm]",
+        "Celková délka při 0° [mm]",
         min_value=20.0,
-        value=300.0,
+        value=320.0,
         step=5.0,
-        key="aux_length"
-    )
-
-    aux_stroke = st.sidebar.number_input(
-        "Zdvih [mm]",
-        min_value=1.0,
-        value=100.0,
-        step=5.0,
-        key="aux_stroke"
+        help=(
+            "Pomocná vzpěra je v zavřeném stavu "
+            "plně zasunutá. Její délka při otevření "
+            "se dopočítá z geometrie."
+        )
     )
 
     aux_base = np.array([
@@ -473,26 +611,15 @@ if configuration == "2 hlavní + 2 pomocné":
 
 
 # ============================================================
-# RUKA
+# SÍLA DO RUKY
 # ============================================================
 
-st.sidebar.header("Manipulace")
-
-hand_distance = st.sidebar.number_input(
-    "Vzdálenost ruky od pantu [mm]",
-    min_value=50.0,
-    value=float(lid_length),
-    step=10.0
+st.sidebar.header(
+    "Síla do ruky"
 )
 
-hand_point = np.array([
-    hand_distance,
-    0.0
-])
-
-
 target_hand_kg = st.sidebar.number_input(
-    "Požadovaná síla při 0° [kg]",
+    "Cílová síla při zavřeném víku [kg]",
     min_value=0.1,
     value=5.0,
     step=0.5
@@ -503,6 +630,19 @@ target_hand_force = (
 )
 
 
+hand_distance = st.sidebar.number_input(
+    "Vzdálenost působení ruky od pantu [mm]",
+    min_value=50.0,
+    value=float(lid_length),
+    step=10.0
+)
+
+hand_point = np.array([
+    -hand_distance,
+    0.0
+])
+
+
 # ============================================================
 # VÝPOČET HLAVNÍHO ČEPU
 # ============================================================
@@ -511,177 +651,270 @@ main_candidates = solve_main_pin(
     main_base,
     main_closed_length,
     main_stroke,
-    max_angle
-)
-
-main_pin = choose_physical_candidate(
-    main_candidates,
+    max_angle,
     lid_length,
-    lid_thickness
+    lid_height
 )
 
 
 # ============================================================
-# MRTVÝ BOD
+# VÝPOČET MRTVÉHO BODU
 # ============================================================
 
-dead_angle = None
+dead_angle = calculate_dead_angle(
+    cg
+)
 
-if abs(cg_x) > 1e-9 or abs(cg_y) > 1e-9:
 
-    # x světové souřadnice CG:
-    #
-    # x = cx*cos(theta) - cy*sin(theta)
-    #
-    # x = 0
-    #
-    # tan(theta) = cx / cy
-
-    dead_angle = math.atan2(
-        cg_x,
-        cg_y
-    )
-
-    if dead_angle < 0:
-        dead_angle += math.pi
-
-    if dead_angle > max_angle:
-        dead_angle = None
+dead_angle_deg = math.degrees(
+    dead_angle
+)
 
 
 # ============================================================
 # VÝPOČET POMOCNÉHO ČEPU
 # ============================================================
 
+aux_candidates = []
+
 aux_pin = None
 
 if (
     configuration == "2 hlavní + 2 pomocné"
-    and dead_angle is not None
+    and aux_base is not None
 ):
 
     aux_candidates = solve_aux_pin(
         aux_base,
         aux_closed_length,
-        dead_angle
-    )
-
-    aux_pin = choose_physical_candidate(
-        aux_candidates,
+        dead_angle,
         lid_length,
-        lid_thickness
+        lid_height
+    )
+
+    if aux_candidates:
+
+        # Vybereme řešení nejblíže středu víka.
+        aux_pin = min(
+            aux_candidates,
+            key=lambda p: abs(
+                p[1] - lid_height / 2
+            )
+        )
+
+
+# ============================================================
+# VÝBĚR HLAVNÍHO ČEPU
+# ============================================================
+
+main_pin = None
+
+if main_candidates:
+
+    # Preferujeme bod více uvnitř víka,
+    # ne úplně na hraně.
+
+    main_pin = min(
+        main_candidates,
+        key=lambda p:
+            abs(p[1] - lid_height / 2)
     )
 
 
 # ============================================================
-# KONTROLA GEOMETRIE
+# VÝSLEDKY GEOMETRIE
 # ============================================================
 
-st.header("Výsledky geometrie")
+st.header(
+    "Výsledky – pozice horních čepů"
+)
 
 
 if main_pin is None:
 
     st.error(
-        "Hlavní vzpěru nelze pro zadanou geometrii vyřešit. "
-        "Změň polohu vany, délku vzpěry, zdvih nebo maximální úhel."
+        "❌ Hlavní čep nelze umístit na víko "
+        "pro zadanou délku, zdvih, základní čep "
+        "a maximální úhel."
     )
 
 else:
 
-    main_length_max = distance(
+    main_open_pin = rotate_clockwise(
+        main_pin,
+        max_angle
+    )
+
+    main_open_length = distance(
         main_base,
-        rotate_point(
-            main_pin,
-            max_angle
-        )
+        main_open_pin
     )
 
     main_real_stroke = (
-        main_length_max
+        main_open_length
         - main_closed_length
     )
 
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric(
-        "Hlavní čep X",
-        f"{main_pin[0]:.1f} mm"
-    )
+    with c1:
+        st.metric(
+            "Hlavní čep X",
+            f"{main_pin[0]:.1f} mm"
+        )
 
-    c2.metric(
-        "Hlavní čep Y",
-        f"{main_pin[1]:.1f} mm"
-    )
+    with c2:
+        st.metric(
+            "Hlavní čep Y",
+            f"{main_pin[1]:.1f} mm"
+        )
 
-    c3.metric(
-        "Délka při max. otevření",
-        f"{main_length_max:.1f} mm"
-    )
+    with c3:
+        st.metric(
+            "Délka při max. úhlu",
+            f"{main_open_length:.1f} mm"
+        )
 
-    c4.metric(
-        "Skutečný zdvih",
-        f"{main_real_stroke:.1f} mm"
-    )
+    with c4:
+        st.metric(
+            "Skutečný zdvih",
+            f"{main_real_stroke:.1f} mm"
+        )
 
+    if abs(
+        main_real_stroke - main_stroke
+    ) > 0.5:
+
+        st.warning(
+            "Geometrie nedokázala splnit současně "
+            "požadovanou zasunutou délku a zdvih."
+        )
+
+
+# ============================================================
+# POMOCNÁ VZPĚRA – VÝSLEDKY
+# ============================================================
 
 if configuration == "2 hlavní + 2 pomocné":
 
-    if dead_angle is None:
+    if dead_angle_deg > max_angle_deg:
 
         st.warning(
-            "Mrtvý bod CG leží mimo rozsah otevření."
+            f"Mrtvý bod CG je až při "
+            f"{dead_angle_deg:.1f}°, "
+            f"což je mimo maximální otevření "
+            f"{max_angle_deg}°."
         )
 
-    elif aux_pin is None:
+    if aux_pin is None:
 
         st.error(
-            "Pomocnou vzpěru nelze geometricky vyřešit."
+            "❌ Pomocný čep nelze umístit na víko "
+            "tak, aby při mrtvém bodě osa vzpěry "
+            "procházela přesně pantem."
         )
 
     else:
 
-        aux_length_max = distance(
-            aux_base,
-            rotate_point(
-                aux_pin,
-                max_angle
-            )
+        aux_dead_pin = rotate_clockwise(
+            aux_pin,
+            dead_angle
         )
 
-        aux_real_stroke = (
-            aux_length_max
+        aux_dead_length = distance(
+            aux_base,
+            aux_dead_pin
+        )
+
+        aux_open_pin = rotate_clockwise(
+            aux_pin,
+            max_angle
+        )
+
+        aux_open_length = distance(
+            aux_base,
+            aux_open_pin
+        )
+
+        aux_open_stroke = (
+            aux_open_length
             - aux_closed_length
         )
 
         c1, c2, c3, c4 = st.columns(4)
 
-        c1.metric(
-            "Pomocný čep X",
-            f"{aux_pin[0]:.1f} mm"
-        )
+        with c1:
+            st.metric(
+                "Pomocný čep X",
+                f"{aux_pin[0]:.1f} mm"
+            )
 
-        c2.metric(
-            "Pomocný čep Y",
-            f"{aux_pin[1]:.1f} mm"
-        )
+        with c2:
+            st.metric(
+                "Pomocný čep Y",
+                f"{aux_pin[1]:.1f} mm"
+            )
 
-        c3.metric(
-            "Mrtvý bod",
-            f"{math.degrees(dead_angle):.1f}°"
-        )
+        with c3:
+            st.metric(
+                "Mrtvý bod CG",
+                f"{dead_angle_deg:.1f}°"
+            )
 
-        c4.metric(
-            "Pomocný skutečný zdvih",
-            f"{aux_real_stroke:.1f} mm"
+        with c4:
+            st.metric(
+                "Pomocná délka při max.",
+                f"{aux_open_length:.1f} mm"
+            )
+
+        st.info(
+            f"Pomocná vzpěra je při 0° dlouhá "
+            f"{aux_closed_length:.1f} mm. "
+            f"V mrtvém bodě ({dead_angle_deg:.1f}°) "
+            f"má délku {aux_dead_length:.1f} mm. "
+            f"Při maximálním otevření má "
+            f"{aux_open_length:.1f} mm "
+            f"(změna délky {aux_open_stroke:+.1f} mm)."
         )
 
 
 # ============================================================
-# VÝPOČET POTŘEBNÝCH SIL
+# KONTROLA, KDE JSOU ČEPY
 # ============================================================
 
-st.header("Potřebná síla vzpěr")
+if main_pin is not None:
+
+    if not pin_inside_lid(
+        main_pin,
+        lid_length,
+        lid_height
+    ):
+
+        st.error(
+            "Hlavní čep není uvnitř plochy víka."
+        )
+
+
+if aux_pin is not None:
+
+    if not pin_inside_lid(
+        aux_pin,
+        lid_length,
+        lid_height
+    ):
+
+        st.error(
+            "Pomocný čep není uvnitř plochy víka."
+        )
+
+
+# ============================================================
+# VÝPOČET SIL
+# ============================================================
+
+st.header(
+    "Potřebné katalogové síly"
+)
 
 
 main_unit_torque = 0.0
@@ -708,21 +941,33 @@ if aux_pin is not None:
 
 gravity_moment_0 = gravity_torque(
     cg,
-    0.0,
+    0,
     mass
 )
 
 
-hand_moment_0 = hand_distance * target_hand_force
+# Síla ruky při zavřeném víku.
+#
+# Ruka působí ve směru otevření.
+#
+# Bod ruky je vlevo od pantu.
+#
+# Pro kladnou otevírací sílu:
+# moment je záporný / podle našeho znaménka.
+hand_moment_0 = (
+    hand_distance
+    * target_hand_force
+)
 
 
-required_spring_moment = (
-    -(gravity_moment_0 + hand_moment_0)
+required_spring_moment = -(
+    gravity_moment_0
+    + hand_moment_0
 )
 
 
 # ============================================================
-# ROZDĚLENÍ SIL
+# ROZDĚLENÍ MOMENTU
 # ============================================================
 
 aux_share = 0.0
@@ -733,11 +978,16 @@ if (
 ):
 
     aux_share = st.slider(
-        "Podíl momentu nesený pomocnými vzpěrami",
+        "Podíl celkového momentu nesený pomocnými vzpěrami",
         min_value=0.0,
         max_value=0.8,
         value=0.25,
-        step=0.05
+        step=0.05,
+        help=(
+            "0 % = veškerý moment nesou hlavní vzpěry. "
+            "25 % = pomocné nesou přibližně čtvrtinu "
+            "celkového momentu."
+        )
     )
 
 
@@ -753,6 +1003,7 @@ aux_total_moment = (
 )
 
 
+# 2 ks hlavních vzpěr
 if abs(main_unit_torque) > 1e-9:
 
     main_force = (
@@ -765,6 +1016,7 @@ else:
     main_force = np.nan
 
 
+# 2 ks pomocných vzpěr
 if (
     aux_pin is not None
     and abs(aux_unit_torque) > 1e-9
@@ -781,53 +1033,62 @@ else:
 
 
 # ============================================================
-# METRIKY
+# METRIKY SIL
 # ============================================================
 
 c1, c2, c3, c4 = st.columns(4)
 
-c1.metric(
-    "Hlavní vzpěra – 1 ks",
-    f"{main_force:.0f} N"
-)
+with c1:
 
-c2.metric(
-    "Pomocná vzpěra – 1 ks",
-    f"{aux_force:.0f} N"
-)
+    if np.isfinite(main_force):
 
-c3.metric(
-    "Cílová síla do ruky",
-    f"{target_hand_force:.0f} N"
-)
+        st.metric(
+            "Hlavní vzpěra – 1 ks",
+            f"{main_force:.0f} N"
+        )
 
-c4.metric(
-    "Cílová síla do ruky",
-    f"{target_hand_kg:.1f} kg"
-)
+    else:
+
+        st.metric(
+            "Hlavní vzpěra – 1 ks",
+            "NELZE"
+        )
 
 
-if main_force < 0:
+with c2:
 
-    st.warning(
-        "Výsledná síla hlavní vzpěry je záporná. "
-        "Geometrie vytváří moment v opačném směru. "
-        "Zkontroluj umístění čepů."
+    st.metric(
+        "Pomocná vzpěra – 1 ks",
+        (
+            f"{aux_force:.0f} N"
+            if aux_pin is not None
+            else "—"
+        )
     )
 
 
-if aux_force < 0:
+with c3:
 
-    st.warning(
-        "Výsledná síla pomocné vzpěry je záporná."
+    st.metric(
+        "Síla do ruky při 0°",
+        f"{target_hand_force:.0f} N"
+    )
+
+
+with c4:
+
+    st.metric(
+        "Mrtvý bod",
+        f"{dead_angle_deg:.1f}°"
     )
 
 
 # ============================================================
-# SESTAVENÍ VZPĚR
+# VZPĚRY PRO SIMULACI
 # ============================================================
 
 springs = []
+
 
 if (
     main_pin is not None
@@ -836,7 +1097,7 @@ if (
 ):
 
     springs.append({
-        "name": "Hlavní",
+        "name": "Hlavní vzpěra",
         "base": main_base,
         "pin": main_pin,
         "force": main_force
@@ -850,7 +1111,7 @@ if (
 ):
 
     springs.append({
-        "name": "Pomocná",
+        "name": "Pomocná vzpěra",
         "base": aux_base,
         "pin": aux_pin,
         "force": aux_force
@@ -858,18 +1119,22 @@ if (
 
 
 # ============================================================
-# INTERAKTIVNÍ ÚHEL
+# ÚHEL PRO ZOBRAZENÍ
 # ============================================================
 
-st.header("Vizualizace")
+st.header(
+    "Geometrie"
+)
+
 
 view_angle_deg = st.slider(
-    "Aktuální úhel víka",
+    "Zobrazený úhel víka",
     min_value=0,
     max_value=max_angle_deg,
     value=0,
     step=1
 )
+
 
 view_angle = math.radians(
     view_angle_deg
@@ -881,80 +1146,100 @@ view_angle = math.radians(
 # ============================================================
 
 fig_geometry, ax_geometry = plt.subplots(
-    figsize=(8, 6)
+    figsize=(9, 7)
 )
 
 
-# Víko
-lid_points = np.array([
-    [0, -lid_thickness / 2],
-    [lid_length, -lid_thickness / 2],
-    [lid_length, lid_thickness / 2],
-    [0, lid_thickness / 2],
-    [0, -lid_thickness / 2]
+# ------------------------------------------------------------
+# VÍKO
+# ------------------------------------------------------------
+
+# Pant je v pravém dolním rohu.
+#
+# Zavřené víko:
+#
+#       (-L,H) ──────────── (0,H)
+#          │                    │
+#          │                    │
+#       (-L,0) ──────────── (0,0) ← pant
+#
+# Víko je tedy vlevo od pantu.
+
+lid_closed = np.array([
+    [-lid_length, 0],
+    [0, 0],
+    [0, lid_height],
+    [-lid_length, lid_height],
+    [-lid_length, 0]
 ])
 
 
 lid_world = np.array([
-    rotate_point(
-        p,
+    rotate_clockwise(
+        point,
         view_angle
     )
-    for p in lid_points
+    for point in lid_closed
 ])
 
 
 ax_geometry.plot(
     lid_world[:, 0],
     lid_world[:, 1],
-    linewidth=2,
+    linewidth=2.5,
     label="Víko"
 )
 
 
-# Pant
+# ------------------------------------------------------------
+# PANT
+# ------------------------------------------------------------
+
 ax_geometry.scatter(
-    0,
-    0,
-    s=80,
+    [0],
+    [0],
+    s=100,
     marker="x",
-    label="Pant",
-    zorder=10
+    linewidths=3,
+    label="Pant [0,0]",
+    zorder=20
 )
 
 
+# ------------------------------------------------------------
 # CG
-cg_world = rotate_point(
+# ------------------------------------------------------------
+
+cg_world = rotate_clockwise(
     cg,
     view_angle
 )
 
 
 ax_geometry.scatter(
-    cg_world[0],
-    cg_world[1],
+    [cg_world[0]],
+    [cg_world[1]],
     s=100,
     marker="o",
     label="CG",
-    zorder=10
+    zorder=20
 )
 
 
 ax_geometry.text(
-    cg_world[0],
-    cg_world[1],
-    " CG",
-    fontsize=10
+    cg_world[0] + 15,
+    cg_world[1] + 15,
+    "CG"
 )
 
 
-# ============================================================
-# HLAVNÍ VZPĚRY
-# ============================================================
+# ------------------------------------------------------------
+# HLAVNÍ VZPĚRA
+# ------------------------------------------------------------
 
 if main_pin is not None:
 
-    main_pin_world = rotate_point(
+    main_pin_world = rotate_clockwise(
         main_pin,
         view_angle
     )
@@ -973,25 +1258,27 @@ if main_pin is not None:
     )
 
     ax_geometry.scatter(
-        main_base[0],
-        main_base[1],
-        s=50
+        [main_base[0]],
+        [main_base[1]],
+        s=60,
+        zorder=20
     )
 
     ax_geometry.scatter(
-        main_pin_world[0],
-        main_pin_world[1],
-        s=50
+        [main_pin_world[0]],
+        [main_pin_world[1]],
+        s=60,
+        zorder=20
     )
 
 
-# ============================================================
-# POMOCNÉ VZPĚRY
-# ============================================================
+# ------------------------------------------------------------
+# POMOCNÁ VZPĚRA
+# ------------------------------------------------------------
 
 if aux_pin is not None:
 
-    aux_pin_world = rotate_point(
+    aux_pin_world = rotate_clockwise(
         aux_pin,
         view_angle
     )
@@ -1011,43 +1298,54 @@ if aux_pin is not None:
     )
 
     ax_geometry.scatter(
-        aux_base[0],
-        aux_base[1],
-        s=50
+        [aux_base[0]],
+        [aux_base[1]],
+        s=60,
+        zorder=20
     )
 
     ax_geometry.scatter(
-        aux_pin_world[0],
-        aux_pin_world[1],
-        s=50
+        [aux_pin_world[0]],
+        [aux_pin_world[1]],
+        s=60,
+        zorder=20
     )
 
 
-# ============================================================
+# ------------------------------------------------------------
 # MRTVÝ BOD
-# ============================================================
+# ------------------------------------------------------------
 
-if dead_angle is not None:
+if dead_angle <= max_angle:
 
-    dead_deg = math.degrees(
+    cg_dead = rotate_clockwise(
+        cg,
         dead_angle
     )
 
-    if dead_deg <= max_angle_deg:
+    ax_geometry.scatter(
+        [cg_dead[0]],
+        [cg_dead[1]],
+        s=100,
+        marker="D",
+        label=(
+            f"CG na ose pantu "
+            f"({dead_angle_deg:.1f}°)"
+        ),
+        zorder=25
+    )
 
-        cg_dead = rotate_point(
-            cg,
-            dead_angle
-        )
+    # Svislá osa pantu
+    ax_geometry.axvline(
+        0,
+        linestyle=":",
+        linewidth=1
+    )
 
-        ax_geometry.scatter(
-            cg_dead[0],
-            cg_dead[1],
-            s=80,
-            marker="D",
-            label=f"Mrtvý bod {dead_deg:.1f}°"
-        )
 
+# ------------------------------------------------------------
+# VZHLED
+# ------------------------------------------------------------
 
 ax_geometry.set_aspect(
     "equal",
@@ -1077,7 +1375,7 @@ ax_geometry.legend(
 
 
 # ============================================================
-# PROFIL SÍLY
+# PROFIL DÉLEK VZPĚR
 # ============================================================
 
 angles_deg = np.linspace(
@@ -1087,29 +1385,93 @@ angles_deg = np.linspace(
 )
 
 
-profile_N = calculate_profile(
-    np.radians(angles_deg),
-    cg,
-    mass,
-    springs,
-    hand_point
+main_lengths = []
+aux_lengths = []
+
+
+for angle_deg in angles_deg:
+
+    angle = math.radians(
+        angle_deg
+    )
+
+    if main_pin is not None:
+
+        main_lengths.append(
+            distance(
+                main_base,
+                rotate_clockwise(
+                    main_pin,
+                    angle
+                )
+            )
+        )
+
+    else:
+
+        main_lengths.append(
+            np.nan
+        )
+
+
+    if aux_pin is not None:
+
+        aux_lengths.append(
+            distance(
+                aux_base,
+                rotate_clockwise(
+                    aux_pin,
+                    angle
+                )
+            )
+        )
+
+    else:
+
+        aux_lengths.append(
+            np.nan
+        )
+
+
+main_lengths = np.array(
+    main_lengths
+)
+
+aux_lengths = np.array(
+    aux_lengths
 )
 
 
+# ============================================================
+# PROFIL SÍLY
+# ============================================================
+
+profile_force = np.array([
+    calculate_hand_force(
+        math.radians(angle),
+        cg,
+        mass,
+        springs,
+        hand_point
+    )
+    for angle in angles_deg
+])
+
+
 fig_force, ax_force = plt.subplots(
-    figsize=(8, 6)
+    figsize=(9, 6)
 )
 
 
 positive = np.where(
-    profile_N >= 0,
-    profile_N,
+    profile_force >= 0,
+    profile_force,
     np.nan
 )
 
 negative = np.where(
-    profile_N < 0,
-    profile_N,
+    profile_force < 0,
+    profile_force,
     np.nan
 )
 
@@ -1118,15 +1480,14 @@ ax_force.plot(
     angles_deg,
     positive,
     linewidth=2,
-    label="Zvedání víka"
+    label="Zvedání – kladná síla"
 )
-
 
 ax_force.plot(
     angles_deg,
     negative,
     linewidth=2,
-    label="Brždění / držení"
+    label="Brždění / držení – záporná síla"
 )
 
 
@@ -1143,20 +1504,14 @@ ax_force.axvline(
 )
 
 
-if dead_angle is not None:
+if dead_angle <= max_angle:
 
-    dead_deg = math.degrees(
-        dead_angle
+    ax_force.axvline(
+        dead_angle_deg,
+        linestyle="--",
+        linewidth=1,
+        label=f"Mrtvý bod ({dead_angle_deg:.1f}°)"
     )
-
-    if dead_deg <= max_angle_deg:
-
-        ax_force.axvline(
-            dead_deg,
-            linestyle="--",
-            linewidth=1,
-            label=f"Mrtvý bod {dead_deg:.1f}°"
-        )
 
 
 ax_force.set_xlabel(
@@ -1204,19 +1559,23 @@ with col2:
 
 
 # ============================================================
-# DETAILNÍ KONTROLA
+# KONTROLNÍ TABULKA
 # ============================================================
 
-st.header("Kontrola v jednotlivých úhlech")
+st.header(
+    "Kontrola délek a sil"
+)
 
 
 check_angles = sorted(
     set([
         0,
-        min(30, max_angle_deg),
+        min(20, max_angle_deg),
+        min(40, max_angle_deg),
         min(45, max_angle_deg),
         min(50, max_angle_deg),
         min(60, max_angle_deg),
+        min(80, max_angle_deg),
         max_angle_deg,
         view_angle_deg
     ])
@@ -1232,28 +1591,36 @@ for angle_deg in check_angles:
         angle_deg
     )
 
-    main_length = np.nan
-    aux_length = np.nan
 
     if main_pin is not None:
 
         main_length = distance(
             main_base,
-            rotate_point(
+            rotate_clockwise(
                 main_pin,
                 angle
             )
         )
 
+    else:
+
+        main_length = np.nan
+
+
     if aux_pin is not None:
 
         aux_length = distance(
             aux_base,
-            rotate_point(
+            rotate_clockwise(
                 aux_pin,
                 angle
             )
         )
+
+    else:
+
+        aux_length = np.nan
+
 
     hand_force = calculate_hand_force(
         angle,
@@ -1263,34 +1630,44 @@ for angle_deg in check_angles:
         hand_point
     )
 
+
     rows.append({
-        "Úhel [°]": angle_deg,
+        "Úhel [°]":
+            round(angle_deg, 1),
 
-        "Hlavní délka [mm]":
-            round(main_length, 1),
-
-        "Hlavní zdvih [mm]":
-            round(
-                main_length - main_closed_length,
-                1
-            ) if np.isfinite(main_length)
+        "Délka hlavní [mm]":
+            round(main_length, 1)
+            if np.isfinite(main_length)
             else np.nan,
 
-        "Pomocná délka [mm]":
+        "Zdvih hlavní [mm]":
+            round(
+                main_length
+                - main_closed_length,
+                1
+            )
+            if np.isfinite(main_length)
+            else np.nan,
+
+        "Délka pomocné [mm]":
             round(aux_length, 1)
             if np.isfinite(aux_length)
             else np.nan,
 
-        "Pomocný zdvih [mm]":
+        "Zdvih pomocné [mm]":
             round(
-                aux_length - aux_closed_length,
+                aux_length
+                - aux_closed_length,
                 1
             )
             if np.isfinite(aux_length)
             else np.nan,
 
         "Síla do ruky [N]":
-            round(hand_force, 1),
+            round(
+                hand_force,
+                1
+            ),
 
         "Síla do ruky [kg]":
             round(
@@ -1307,121 +1684,155 @@ st.dataframe(
 
 
 # ============================================================
-# DALŠÍ KONTROLY
+# KONTROLY
 # ============================================================
 
-st.header("Kontrola pracovního rozsahu")
+st.header(
+    "Kontrola geometrie"
+)
 
+
+# ------------------------------------------------------------
+# Hlavní vzpěra
+# ------------------------------------------------------------
 
 if main_pin is not None:
 
-    main_lengths = np.array([
-        distance(
-            main_base,
-            rotate_point(
-                main_pin,
-                math.radians(a)
-            )
+    main_error = abs(
+        main_lengths[-1]
+        - (
+            main_closed_length
+            + main_stroke
         )
-        for a in angles_deg
-    ])
-
-    main_strokes = (
-        main_lengths
-        - main_closed_length
     )
 
-    if np.min(main_strokes) < -0.1:
+    if main_error < 0.5:
 
-        st.error(
-            "Hlavní vzpěra se v části rozsahu dostává "
-            "pod svou zadanou zasunutou délku."
+        st.success(
+            "✓ Hlavní vzpěra splňuje podmínku: "
+            "0° = zasunutá délka, "
+            "max. úhel = zasunutá délka + zdvih."
         )
 
-    if np.max(main_strokes) > main_stroke + 0.1:
+    else:
 
-        st.warning(
-            "Hlavní vzpěra překračuje zadaný zdvih."
+        st.error(
+            "Hlavní vzpěra nesplňuje zadanou "
+            "kombinaci délky a zdvihu."
+        )
+
+
+# ------------------------------------------------------------
+# Pomocná vzpěra
+# ------------------------------------------------------------
+
+if aux_pin is not None:
+
+    aux_dead_pin_check = rotate_clockwise(
+        aux_pin,
+        dead_angle
+    )
+
+    # Vektor od základny k čepu
+    # musí být kolineární s vektorem
+    # od základny k pantu.
+
+    v1 = aux_dead_pin_check - aux_base
+    v2 = -aux_base
+
+    cross = abs(
+        cross_2d(v1, v2)
+    )
+
+    if cross < 1.0:
+
+        st.success(
+            "✓ Pomocná vzpěra v mrtvém bodě "
+            f"({dead_angle_deg:.1f}°) přesně prochází "
+            "osou pantu."
+        )
+
+    else:
+
+        st.error(
+            "Pomocná vzpěra v mrtvém bodě "
+            "neprochází osou pantu."
+        )
+
+
+# ------------------------------------------------------------
+# Síla
+# ------------------------------------------------------------
+
+if np.isfinite(main_force):
+
+    if main_force > 0:
+
+        st.success(
+            f"Hlavní vzpěra: {main_force:.0f} N / ks."
+        )
+
+    else:
+
+        st.error(
+            "Hlavní vzpěra vychází se zápornou silou. "
+            "Je potřeba změnit geometrii."
         )
 
 
 if aux_pin is not None:
 
-    aux_lengths = np.array([
-        distance(
-            aux_base,
-            rotate_point(
-                aux_pin,
-                math.radians(a)
-            )
-        )
-        for a in angles_deg
-    ])
+    if aux_force > 0:
 
-    aux_strokes = (
-        aux_lengths
-        - aux_closed_length
-    )
-
-    if np.min(aux_strokes) < -0.1:
-
-        st.error(
-            "Pomocná vzpěra se dostává pod svou "
-            "zadanou zasunutou délku."
+        st.success(
+            f"Pomocná vzpěra: {aux_force:.0f} N / ks."
         )
 
-    if np.max(aux_strokes) > aux_stroke + 0.1:
+    else:
 
         st.warning(
-            "Pomocná vzpěra překračuje zadaný zdvih."
+            "Pomocná vzpěra vychází se zápornou silou."
         )
 
 
 # ============================================================
-# POZNÁMKY
+# INFORMAČNÍ PANEL
 # ============================================================
 
-st.header("Poznámky k výpočtu")
+st.header(
+    "Logika výpočtu"
+)
 
 st.markdown(
-    """
-**Hlavní vzpěra**
+    f"""
+### Hlavní vzpěra
 
-Čep na víku je dopočítán přesně z podmínek:
+- při **0°** má přesně zadanou celkovou délku
+  **{main_closed_length:.1f} mm**
+- při **{max_angle_deg}°** má přesně
+  **{main_closed_length + main_stroke:.1f} mm**
+- horní čep je matematicky hledán pouze **uvnitř plochy víka**
 
-- délka vzpěry při 0° = zadaná zasunutá délka,
-- délka vzpěry při maximálním otevření =
-  zasunutá délka + zdvih.
+### Pomocná vzpěra
 
-**Pomocná vzpěra**
+- při **0°** má přesně zadanou celkovou délku
+  **{aux_closed_length:.1f} mm**,
+- její horní čep je hledán pouze **na víku**,
+- v úhlu **{dead_angle_deg:.1f}°** musí osa vzpěry procházet
+  přesně bodem **[0, 0] – pantem**,
+- její délka při maximálním otevření se **nedává jako další
+  pevná podmínka**, ale je výsledkem geometrie.
 
-Čep je dopočítán z podmínky, že v okamžiku,
-kdy CG přejde přes osu pantu, prochází osa pomocné
-vzpěry přesně bodem `[0, 0]`.
+To je důležité: u pomocné vzpěry nelze obecně současně libovolně
+nastavit zasunutou délku, zdvih, polohu spodního čepu a ještě
+požadovat průchod osou pantu v přesně daném mrtvém bodě.
+Bylo by to příliš mnoho geometrických podmínek.
 
-**Síly**
+### Znaménko síly do ruky
 
-Síla je počítána z momentové rovnováhy kolem pantu.
-Výsledná síla je síla **jednoho kusu** vzpěry.
-
-U konfigurace 2 + 2 se tedy moment každého typu
-násobí dvěma.
-
-**Pozor pro reálný návrh**
-
-Tento výpočet zatím neuvažuje:
-
-- změnu síly vzpěry během zdvihu,
-- tlak plynu,
-- tření pístnice,
-- teplotní závislost,
-- výrobní tolerance,
-- dynamické rázy,
-- bezpečnostní koeficient,
-- skutečnou polohu a směr síly ruky,
-- případnou nelinearitu konstrukce.
-
-Pro katalogový výběr je proto vhodné následně pracovat
-s hodnotami **F1 / F2** konkrétní plynové vzpěry.
+- **kladná hodnota** = musíš víko zvedat,
+- **0 N** = mrtvý bod / rovnováha,
+- **záporná hodnota** = vzpěry mají tendenci víko otevírat
+  a při zavírání je musíš brzdit.
 """
 )
