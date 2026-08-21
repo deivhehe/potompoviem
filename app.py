@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
-st.title("Vzpěrovač - Exaktní výpočet dle nových pravidel")
+st.title("Vzpěrovač - Výpočet sil a čepů na víku")
 
 # --- UI - BOČNÍ PANEL ---
 st.sidebar.header("1. Parametry víka")
@@ -28,12 +28,14 @@ stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=500.0, step=10.0
 
 if pocet_vzper == 4:
     st.sidebar.header("3. Pomocné vzpěry (Zadní u pantu)")
-    # Zadávaná Y pozice vany a zasunutá délka se přísně drží
+    B_x2 = st.sidebar.number_input("Pomocná - vana X", value=175.0, step=10.0)
     B_y2 = st.sidebar.number_input("Pomocná - vana Y", value=-301.0, step=10.0)
+    B2 = np.array([B_x2, B_y2])
     L_closed2 = st.sidebar.number_input("Pomocná - Zasunutá délka (mm)", value=550.0, step=10.0)
     stroke2 = st.sidebar.number_input("Pomocná - Zdvih (mm)", value=120.0, step=10.0)
 else:
-    B_y2, L_closed2, stroke2 = 0.0, 0.0, 0.0
+    B2 = np.array([0.0, 0.0])
+    L_closed2, stroke2 = 0.0, 0.0
 
 # --- MATEMATIKA A GEOMETRIE ---
 def rotate(pt, angle_deg):
@@ -66,38 +68,23 @@ cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# 2. Hlavní čep
+# 2. Hlavní čep na víku (standardně ze zadané délky a zdvihu)
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # 3. Výpočet pozice X na vaně a čepu na víku pro pomocnou vzpěru:
-    # Víme, že v okamžiku přechodu těžiště (alpha_cg_over) musí osa vzpěry procházet pantem [0,0] 
-    # a zároveň mít délku L_closed2. 
-    # Zvolíme směr linie vana-pant tak, aby vana ležela na zadané Y souřadnici (B_y2).
-    # Rovnice pro přímku procházející pantem [0,0]: Y = (B_y2 / B_x2) * X. 
-    # Jelikož délka od B2 do pantu [0,0] v okamžiku přechodu musí být rovna L_closed2 
-    # (pokud předpokládáme, že vzpěra je v tomto bodě ve své výchozí/zasunuté délce, nebo z geometrické podmínky):
-    # Abychom našli B_x2 tak, aby Y vany byla B_y2 a vzdálenost od pantu byla L_closed2:
-    # Z Pythagorovy věty: B_x2 = -sqrt(L_closed2^2 - B_y2^2) (nebo plus podle strany uložení vany).
-    val_bx = L_closed2**2 - B_y2**2
-    if val_bx >= 0:
-        B_x2 = -np.sqrt(val_bx) # uložení vana v záporné X poloze (vlevo od pantu)
-    else:
-        B_x2 = -100.0
-    
-    B2 = np.array([B_x2, B_y2])
-    
-    # Směr z vany B2 přes pant [0,0] ven do prostoru
+    # 3. Pomocný čep na víku:
+    # Vana B2 a zasunutá délka L_closed2 jsou fixní. 
+    # V okamžiku přechodu těžiště (alpha_cg_over) musí osa vzpěry procházet pantem [0,0] 
+    # a zároveň mít v tomto bodě délku L_closed2. Zpětným otočením dostaneme P2 pro 0°.
     v_dir = np.array([0.0, 0.0]) - B2
-    u_dir = v_dir / np.linalg.norm(v_dir)
-    
-    # Bod v prostoru v okamžiku přechodu těžiště (leží na přímce vana-pant ve vzdálenosti L_closed2)
-    P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-    
-    # Zpětným otočením o úhel přechodu těžiště získáme celkovou pozici čepu P2 v zavřeném stavu (0°)
-    P2 = rotate(P_dead_global, -alpha_cg_over)
+    v_len = np.linalg.norm(v_dir)
+    if v_len > 0:
+        u_dir = v_dir / v_len
+        P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
+        P2 = rotate(P_dead_global, -alpha_cg_over)
+    else:
+        P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
 else:
-    B2 = np.array([0.0, 0.0])
     P2 = np.array([0.0, 0.0])
 
 angles = np.linspace(0, max_angle, 100)
@@ -116,12 +103,13 @@ def get_kinematics(P, B):
 d1, L1 = get_kinematics(P1, B1)
 d2, L2 = get_kinematics(P2, B2) if pocet_vzper == 4 else (np.zeros_like(angles), np.zeros_like(angles))
 
-# Výpočet sil vzpěr
+# Výpočet potřebných sil vzpěr
 target_hand_force_0 = 5.0 # kg
 target_moment_0 = target_hand_force_0 * 9.81 * (L_lid / 1000.0)
 req_M_0 = M_grav[0] - target_moment_0
 
 if pocet_vzper == 4:
+    # Spočítáme potřebnou sílu pomocné vzpěry tak, aby systém fungoval
     F2 = 300.0 
     if np.abs(d2[0]) > 0.01:
         rem_M = req_M_0 - (F2 * 2 * d2[0])
@@ -142,14 +130,14 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie exaktně spočítána dle tvých pravidel!")
+st.success("✅ Síly vzpěr a pozice čepů na víku úspěšně spočítány!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
 col2.metric("Přední čep víko", f"X: {P1[0]:.0f}, Y: {max(0, P1[1]):.0f} mm")
 
 if pocet_vzper == 4:
-    col3.metric("Pomocná vana X", f"X: {B2[0]:.0f} mm")
+    col3.metric("Pomocná vzpěra (1ks)", f"{F2_rounded:.0f} N")
     col4.metric("Zadní čep víko", f"X: {P2[0]:.0f}, Y: {max(0, P2[1]):.0f} mm")
 else:
     col3.metric("Pomocná vzpěra", "Není")
