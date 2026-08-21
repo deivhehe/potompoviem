@@ -10,36 +10,37 @@ st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 G = 9.81  # m/s^2
 
 # ----------------------------------------------------------------------
-# Pomocné fyzikální funkce
+# Pomocné fyzikální funkce (pracují v milimetrech pro geometrii)
 # ----------------------------------------------------------------------
-def rotate(lx, ly, theta):
-    """Otočí lokální bod (lx,ly) o úhel theta [rad] kolem pantu [0,0]."""
+def rotate_mm(lx, ly, theta):
+    """Otočí lokální bod v mm (lx,ly) o úhel theta [rad] kolem pantu [0,0]."""
     c, s = np.cos(theta), np.sin(theta)
     return lx * c - ly * s, lx * s + ly * c
 
 
-def signed_moment_arm(Xb, Yb, lx, ly, theta):
-    """Znaménkové rameno síly vzpěry vůči pantu (m)."""
-    Xp, Yp = rotate(lx, ly, theta)
-    L = np.sqrt((Xp - Xb) ** 2 + (Yp - Yb) ** 2)
-    if L < 1e-9:
+def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
+    """Znaménkové rameno síly vzpěry vůči pantu v metrech (pro výpočet momentů)."""
+    Xp_mm, Yp_mm = rotate_mm(lx_mm, ly_mm, theta)
+    L_mm = np.sqrt((Xp_mm - Xb_mm) ** 2 + (Yp_mm - Yb_mm) ** 2)
+    if L_mm < 1e-6:
         return 0.0
-    return (Xb * Yp - Yb * Xp) / L
+    # rameno v metrech = (Xb*Yp - Yb*Xp) / L v milimetrech / 1000
+    return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def _pick_physical_root(eqs, guesses, L_lid, H_lid, margin=0.15, reject_radius=0.02):
-    x_lo, x_hi = -margin * L_lid, (1 + margin) * L_lid
-    y_lo, y_hi = -margin * H_lid, (1 + margin) * H_lid
+def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.15, reject_radius=2.0):
+    x_lo, x_hi = -margin * L_lid_mm, (1 + margin) * L_lid_mm
+    y_lo, y_hi = -margin * H_lid_mm, (1 + margin) * H_lid_mm
 
     candidates = []
     for g0 in guesses:
         sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
         res = np.linalg.norm(info["fvec"])
-        if res > 1e-6:
+        if res > 1e-4:
             continue
         if np.hypot(*sol) < reject_radius:
             continue
-        key = (round(sol[0], 3), round(sol[1], 3))
+        key = (round(sol[0], 1), round(sol[1], 1))
         if any(key == c[2] for c in candidates):
             continue
         in_env = (x_lo <= sol[0] <= x_hi) and (y_lo <= sol[1] <= y_hi)
@@ -57,45 +58,45 @@ def _pick_physical_root(eqs, guesses, L_lid, H_lid, margin=0.15, reject_radius=0
     return best[1], best[0], False
 
 
-def solve_main_pin(Xb, Yb, L0, S, theta_max, L_lid, H_lid):
+def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     def eqs(v):
         lx, ly = v
-        e1 = (lx - Xb) ** 2 + (ly - Yb) ** 2 - L0 ** 2
-        Xp2, Yp2 = rotate(lx, ly, theta_max)
-        e2 = (Xp2 - Xb) ** 2 + (Yp2 - Yb) ** 2 - (L0 + S) ** 2
+        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
+        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return [e1, e2]
 
     guesses = [
-        (Xb + L0 * 0.6, Yb + L0 * 0.3),
-        (Xb - L0 * 0.3, Yb + L0 * 0.6),
-        (L0, 0.05), (0.05, L0), (Xb, Yb + L0),
-        (0.3 * L_lid, 0.3 * H_lid), (0.6 * L_lid, 0.3 * H_lid),
+        (Xb_mm + L0_mm * 0.6, Yb_mm + L0_mm * 0.3),
+        (Xb_mm - L0_mm * 0.3, Yb_mm + L0_mm * 0.6),
+        (L0_mm, 50.0), (50.0, L0_mm), (Xb_mm, Yb_mm + L0_mm),
+        (0.3 * L_lid_mm, 0.3 * H_lid_mm), (0.6 * L_lid_mm, 0.3 * H_lid_mm),
     ]
-    return _pick_physical_root(eqs, guesses, L_lid, H_lid)
+    return _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm)
 
 
-def solve_aux_pin(Xb2, Yb2, L02, theta_dead, L_lid, H_lid):
-    R2 = Xb2 ** 2 + Yb2 ** 2
+def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
+    R2 = Xb2_mm ** 2 + Yb2_mm ** 2
     R = np.sqrt(R2)
-    if R < 1e-9:
+    if R < 1e-6:
         return None, np.inf, False, None
 
     sin_d, cos_d = np.sin(theta_dead), np.cos(theta_dead)
     min_L02 = R * abs(sin_d)
-    disc = (L02 ** 2) / R2 - sin_d ** 2
+    disc = (L02_mm ** 2) / R2 - sin_d ** 2
     if disc < 0:
         return None, np.inf, False, min_L02
 
     sq = np.sqrt(disc)
-    ux, uy = rotate(Xb2, Yb2, -theta_dead)
+    ux, uy = rotate_mm(Xb2_mm, Yb2_mm, -theta_dead)
 
-    x_lo, x_hi = -0.15 * L_lid, 1.15 * L_lid
-    y_lo, y_hi = -0.15 * H_lid, 1.15 * H_lid
+    x_lo, x_hi = -0.15 * L_lid_mm, 1.15 * L_lid_mm
+    y_lo, y_hi = -0.15 * H_lid_mm, 1.15 * H_lid_mm
 
     sols = []
     for t in (cos_d + sq, cos_d - sq):
         lx, ly = t * ux, t * uy
-        if np.hypot(lx, ly) < 0.02:
+        if np.hypot(lx, ly) < 2.0:
             continue
         sols.append((lx, ly))
 
@@ -108,15 +109,15 @@ def solve_aux_pin(Xb2, Yb2, L02, theta_dead, L_lid, H_lid):
     return np.array(sols[0]), 0.0, False, min_L02
 
 
-def find_dead_point(cg_x, cg_y, theta_max):
-    f = lambda th: cg_x * np.cos(th) - cg_y * np.sin(th)
+def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
+    f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
     if f(0.0) * f(theta_max) >= 0:
         return None
     return brentq(f, 1e-6, theta_max)
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar (vstupy)
+# UI - Sidebar (vstupy v mm a kg)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 600.0, 10.0)
@@ -124,8 +125,8 @@ lid_height = st.sidebar.number_input("Výška / tloušťka víka (mm)", 10.0, 10
 lid_mass = st.sidebar.number_input("Hmotnost víka (kg)", 0.1, 500.0, 15.0, 0.5)
 
 st.sidebar.header("2) Těžiště víka (od pantu, v zavřeném stavu)")
-cg_x_cm = st.sidebar.number_input("Těžiště X (mm)", 0.0, 3000.0, float(np.clip(lid_length * 0.5, 0.0, 3000.0)), 5.0)
-cg_y_cm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np.clip(lid_height * 0.5, -500.0, 1000.0)), 5.0)
+cg_x_mm = st.sidebar.number_input("Těžiště X (mm)", 0.0, 3000.0, float(np.clip(lid_length * 0.5, 0.0, 3000.0)), 5.0)
+cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np.clip(lid_height * 0.5, -500.0, 1000.0)), 5.0)
 
 st.sidebar.header("3) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 95)
@@ -156,49 +157,40 @@ theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, the
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Převody na SI
+# Výpočty (v milimetrech a Newtonech)
 # ----------------------------------------------------------------------
-mm = 0.001
-L_lid = lid_length * mm
-H_lid = lid_height * mm
-m = lid_mass
-cg_x, cg_y = cg_x_cm * mm, cg_y_cm * mm
 theta_max = np.radians(theta_max_deg)
 n_main = 2
 
-Xb1_m, Yb1_m = Xb1 * mm, Yb1 * mm
-L0_1_m, S1_m = L0_1 * mm, S1 * mm
-
-pin1, res1, in_env1 = solve_main_pin(Xb1_m, Yb1_m, L0_1_m, S1_m, theta_max, L_lid, H_lid)
+pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
 lx1, ly1 = pin1
 
-theta_dead = find_dead_point(cg_x, cg_y, theta_max)
+theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 
 pin2 = None
 if use_aux:
-    Xb2_m, Yb2_m = Xb2 * mm, Yb2 * mm
-    L0_2_m = L0_2 * mm
     if theta_dead is not None:
-        pin2, res2, in_env2, min_L02 = solve_aux_pin(Xb2_m, Yb2_m, L0_2_m, theta_dead, L_lid, H_lid)
+        pin2, res2, in_env2, min_L02 = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
         if pin2 is not None:
             lx2, ly2 = pin2
             n_aux = 2
 
-# ----------------------------------------------------------------------
-# Výpočet síly hlavní vzpěry
-# ----------------------------------------------------------------------
-def Xcg(theta):
-    return cg_x * np.cos(theta) - cg_y * np.sin(theta)
+def Xcg_m(theta):
+    # cg_x_mm v metrech pro výpočet momentu gravity
+    cg_xm = cg_x_mm * 0.001
+    cg_ym = cg_y_mm * 0.001
+    return cg_xm * np.cos(theta) - cg_ym * np.sin(theta)
 
 def Tg(theta):
-    return -m * G * Xcg(theta)
+    return -lid_mass * G * Xcg_m(theta)
 
 target_open_N = target_open_kg * G
-d1_0 = signed_moment_arm(Xb1_m, Yb1_m, lx1, ly1, 0.0)
+L_lid_m = lid_length * 0.001
+d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 
 if use_aux and pin2 is not None:
-    d2_0 = signed_moment_arm(Xb2_m, Yb2_m, lx2, ly2, 0.0)
-    moment_sum_needed = -(Tg(0.0) + target_open_N * L_lid)
+    d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
+    moment_sum_needed = -(Tg(0.0) + target_open_N * L_lid_m)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
     F_main = (moment_sum_needed - moment_from_aux) / denom if abs(denom) > 1e-9 else 0.0
@@ -206,13 +198,13 @@ if use_aux and pin2 is not None:
 else:
     F_aux = None
     denom = n_main * d1_0
-    F_main = (-(Tg(0.0) + target_open_N * L_lid)) / denom if abs(denom) > 1e-9 else 0.0
+    F_main = (-(Tg(0.0) + target_open_N * L_lid_m)) / denom if abs(denom) > 1e-9 else 0.0
 
 def F_hand(theta):
-    Ts = n_main * F_main * signed_moment_arm(Xb1_m, Yb1_m, lx1, ly1, theta)
+    Ts = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
     if use_aux and pin2 is not None and F_aux is not None:
-        Ts += n_aux * F_aux * signed_moment_arm(Xb2_m, Yb2_m, lx2, ly2, theta)
-    return -(Tg(theta) + Ts) / L_lid
+        Ts += n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
+    return -(Tg(theta) + Ts) / L_lid_m
 
 # ----------------------------------------------------------------------
 # Metrický panel
@@ -233,11 +225,11 @@ c4.metric(
 )
 
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Čep na víku – hlavní X", f"{lx1/mm:.1f} mm")
-c6.metric("Čep na víku – hlavní Y", f"{ly1/mm:.1f} mm")
+c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
+c6.metric("Čep na víku – hlavní Y", f"{ly1:.1f} mm")
 if use_aux and pin2 is not None:
-    c7.metric("Čep na víku – pomocná X", f"{lx2/mm:.1f} mm")
-    c8.metric("Čep na víku – pomocná Y", f"{ly2/mm:.1f} mm")
+    c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm")
+    c8.metric("Čep na víku – pomocná Y", f"{ly2:.1f} mm")
 else:
     c7.metric("Čep na víku – pomocná X", "—")
     c8.metric("Čep na víku – pomocná Y", "—")
@@ -250,20 +242,18 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie (v mm)
+# Vykreslení geometrie (čistě v milimetrech)
 # ----------------------------------------------------------------------
-def draw_geometry(ax, theta):
+def draw_geometry_mm(ax, theta):
     ax.clear()
-    box_w_mm = max(lid_length, abs(Xb1) + 100, abs(Xb2) + 100 if use_aux else 0)
-    
-    # Obdélník vana/box v mm
+    box_w = max(lid_length, abs(Xb1) + 50, abs(Xb2) + 50 if use_aux else 0)
     ax.add_patch(
-        plt.Rectangle((-20, -lid_height * 400), box_w_mm + 20, lid_height * 400, fill=False,
+        plt.Rectangle((-20, -lid_height * 4), box_w + 20, lid_height * 4, fill=False,
                       edgecolor="gray", linestyle=":", linewidth=1)
     )
 
     corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
-    corners_global = [rotate(lx, ly, theta) for lx, ly in corners_local]
+    corners_global = [rotate_mm(lx, ly, theta) for lx, ly in corners_local]
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
@@ -271,24 +261,24 @@ def draw_geometry(ax, theta):
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12))
 
-    Xc_mm, Yc_mm = rotate(cg_x_cm, cg_y_cm, theta)
-    ax.plot(Xc_mm, Yc_mm, "o", color="red", markersize=10, zorder=6)
-    ax.annotate("CG", (Xc_mm, Yc_mm), textcoords="offset points", xytext=(6, 6), color="red")
+    Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
+    ax.plot(Xc, Yc, "o", color="red", markersize=10, zorder=6)
+    ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red")
 
-    Xp1_mm, Yp1_mm = rotate(lx1/mm, ly1/mm, theta)
-    ax.plot([Xb1, Xp1_mm], [Yb1, Yp1_mm], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
+    Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
+    ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
     ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
-    ax.plot(Xp1_mm, Yp1_mm, "^", color="#1f77b4", markersize=7, zorder=5)
+    ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
 
     if use_aux and pin2 is not None:
-        Xp2_mm, Yp2_mm = rotate(lx2/mm, ly2/mm, theta)
-        ax.plot([Xb2, Xp2_mm], [Yb2, Yp2_mm], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
+        Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
+        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
-        ax.plot(Xp2_mm, Yp2_mm, "^", color="#d62728", markersize=7, zorder=5)
+        ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
-    lim = max(lid_length, box_w_mm) * 1.3 + 50
+    lim = max(lid_length, box_w) * 1.3 + 20
     ax.set_xlim(-lim * 0.2, lim)
-    ax.set_ylim(-lid_height * 400 - 50, lim)
+    ax.set_ylim(-lid_height * 4 - 20, lim)
     ax.set_aspect("equal")
     ax.invert_xaxis()
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10)
@@ -323,7 +313,7 @@ def draw_force_profile(ax, theta_marker=None):
 
 
 col_geo, col_force = st.columns(2)
-# Oba grafy mají nyní identickou kompaktní velikost (3.8, 3.4)
+# Oba grafy mají shodnou kompaktní velikost (3.8, 3.4)
 fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
 fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
 
@@ -334,13 +324,13 @@ if animate:
     placeholder2 = col_force.empty()
     for deg in np.linspace(0, theta_max_deg, 40):
         th = np.radians(deg)
-        draw_geometry(ax1, th)
+        draw_geometry_mm(ax1, th)
         draw_force_profile(ax2, th)
         placeholder1.pyplot(fig1)
         placeholder2.pyplot(fig2)
         time.sleep(0.04)
 else:
-    draw_geometry(ax1, theta_disp)
+    draw_geometry_mm(ax1, theta_disp)
     draw_force_profile(ax2, theta_disp)
     col_geo.pyplot(fig1)
     col_force.pyplot(fig2)
