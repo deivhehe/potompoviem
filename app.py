@@ -136,10 +136,10 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, float(np.clip(lid_length * 0.25, -1000.0, 3000.0)), 5.0)
-Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, float(np.clip(-lid_height * 1.5, -1000.0, 1000.0)), 5.0)
-L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 350.0, 5.0)
-S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 200.0, 5.0)
+Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, float(np.clip(lid_length * 0.35, -1000.0, 3000.0)), 5.0)
+Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, float(np.clip(lid_height * 3.0, -1000.0, 1000.0)), 5.0)
+L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 220.0, 5.0)
+S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 150.0, 5.0)
 
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
