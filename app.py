@@ -31,7 +31,7 @@ if pocet_vzper == 4:
     B_x2 = st.sidebar.number_input("Pomocná - vana X", value=175.0, step=10.0)
     B_y2 = st.sidebar.number_input("Pomocná - vana Y", value=-301.0, step=10.0)
     B2 = np.array([B_x2, B_y2])
-    L_closed2 = st.sidebar.number_input("Pomocná - Zasunutá délka (mm)", value=560.0, step=10.0)
+    L_closed2 = st.sidebar.number_input("Pomocná - Zasunutá délka (mm)", value=550.0, step=10.0)
     stroke2 = st.sidebar.number_input("Pomocná - Zdvih (mm)", value=120.0, step=10.0)
 else:
     B2 = np.array([0.0, 0.0])
@@ -68,22 +68,18 @@ cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# 2. Hlavní čep se počítá klasicky ze zadané délky a zdvihu
+# 2. Hlavní čep ze zadané délky a zdvihu
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # GEOMETRICKÝ VÝPOČET ČEPU POMOCNÉ VZPĚRY NA VÍKU:
-    # Chceme, aby v úhlu alpha_cg_over byla délka vzpěry přesně L_closed2 
-    # a zároveň její osa procházela pantem [0,0]. 
-    # Vektor směru z vany B2 přes pant [0,0] ven do prostoru víka:
+    # 3. Pomocný čep: délka je fixně L_closed2, v okamžiku přechodu těžiště projde pantem [0,0]
     v_dir = np.array([0.0, 0.0]) - B2
     v_len = np.linalg.norm(v_dir)
     if v_len > 0:
         u_dir = v_dir / v_len
-        # Bod v globálním prostoru v okamžiku, kdy je vzpěra natažená na L_closed2 skrz pant
+        # Bod v prostoru při přechodu těžiště: leží na přímce vana-pant ve vzdálenosti zadané zasunuté délky
         P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        # Zpětným otočením o úhel přechodu těžiště získáme pozici čepu P2 v zavřeném stavu (0°).
-        # Tím je zaručeno, že v 0° má vzpěra PŘESNĚ délku L_closed2 a v okamžiku CG projde pantem!
+        # Zpětným otočením získáme pozici čepu P2 v zavřeném stavu (0°), délka v zavřeném stavu je tak PŘESNĚ L_closed2
         P2 = rotate(P_dead_global, -alpha_cg_over)
     else:
         P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
@@ -132,7 +128,7 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie synchronizována s délkou i přechodem těžiště!")
+st.success("✅ Geometrie spočítána: délka dodržena, čep na víku dopočítán!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
