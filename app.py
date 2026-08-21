@@ -6,7 +6,7 @@ from matplotlib.patches import Polygon
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
 st.title("Vzpěrovač - Optimalizace na katalogové vzpěry (max 500 N)")
 
-# --- VÝCHOZÍ HODNOTY ---
+# --- VÝCHOZÍ HODNOTY S LEPŠÍM PÁKOVÝM POMĚREM ---
 DEFAULT_VALUES = {
     "m": 30.0,
     "L_lid": 1000.0,
@@ -15,14 +15,14 @@ DEFAULT_VALUES = {
     "C_y": 75.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    # Hlavní pár
-    "B_x1": 300.0,
-    "B_y1": -100.0,
+    # Hlavní pár (posunuto dál od pantu pro menší sílu vzpěry)
+    "B_x1": 650.0,
+    "B_y1": -120.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
     # Asistenční pár (zadní)
-    "B_x2": 100.0,
-    "B_y2": -150.0,
+    "B_x2": 175.0,
+    "B_y2": -301.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
     "F2_user": 200.0
@@ -37,7 +37,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKé ROZHRANÍ ---
+# --- UŽIVATELSKÉ ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -138,7 +138,6 @@ if pocet_vzper == 4:
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
-# Výpočet potřebné síly přední vzpěry s ohledem na požadavek, aby víko drželo nahoře
 valid_idx = np.abs(d_arms1) > 0.05 
 if np.any(valid_idx):
     req_M_front = M_grav - M_rear
@@ -148,9 +147,8 @@ else:
 
 F_1_rounded = max(50.0, np.ceil(max(0, F_1_strut) / 50.0) * 50)
 
-# Omezení / doporučení pro katalogové hodnoty (max 500 N)
 if F_1_rounded > 500:
-    st.warning(f"⚠️ Vypočítaná síla přední vzpěry ({F_1_rounded:.0f} N) přesahuje požadovaný limit 500 N! Zkuste v levém panelu posunout čep na vaně dál od pantu (větší X), abyste zlepšili pákový poměr.")
+    st.warning(f"⚠️ Vypočítaná síla přední vzpěry ({F_1_rounded:.0f} N) přesahuje limit 500 N! Zkuste čep na vaně posunout dál od pantu (větší X).")
 
 M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
@@ -159,9 +157,12 @@ F_user_kg = (M_net / (L_lid / 1000.0)) / g
 st.success("✅ Model přepočítán!")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
-col2.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg", "(Mělo by být 5-10kg)")
-col3.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg", "(Mělo by být blízko 0kg)")
-col4.metric("Mrtvý bod zadní", f"{alpha_dead:.1f}°" if pocet_vzper==4 else "Není")
+col2.metric("Přední čep víko (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
+if pocet_vzper == 4:
+    col3.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+else:
+    col3.metric("Zadní čep víko", "Není")
+col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
 
 st.divider()
 
