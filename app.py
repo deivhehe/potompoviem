@@ -23,6 +23,7 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     L_mm = np.sqrt((Xp_mm - Xb_mm) ** 2 + (Yp_mm - Yb_mm) ** 2)
     if L_mm < 1e-6:
         return 0.0
+    # Rameno síly vůči pantu (0,0). Znaménko určuje, zda moment otevírá nebo zavírá.
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
@@ -204,10 +205,14 @@ else:
     F_main = (-(Tg(0.0) + target_open_N_input * L_lid_m)) / denom if abs(denom) > 1e-9 else 0.0
 
 def F_hand(theta):
-    Ts = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
+    # Momenty zohledňují aktuální ramena (kladná = pomáhají otevírat, záporná = brzdí / působí proti)
+    Ts_main = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
+    Ts_aux = 0.0
     if use_aux and pin2 is not None and F_aux is not None:
-        Ts += n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
-    return -(Tg(theta) + Ts) / L_lid_m
+        Ts_aux = n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
+    
+    # Celková síla na ruku vyrovnává gravitaci a momenty obou vzpěr
+    return -(Tg(theta) + Ts_main + Ts_aux) / L_lid_m
 
 # ----------------------------------------------------------------------
 # Metrický panel
@@ -308,11 +313,11 @@ def draw_force_profile(ax, theta_marker=None):
 
     ax.axhline(0, color="black", linewidth=1)
     ax.fill_between(degs, forces_n, 0, where=(forces_n >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
-    ax.fill_between(degs, forces_n, 0, where=(forces_n < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
+    ax.fill_between(degs, forces_n, 0, where=(forces_n < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá / brzdí")
     ax.plot(degs, forces_n, color="black", linewidth=1.5)
 
     if theta_dead is not None:
-        ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod")
+        ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod pomocné")
 
     if theta_marker is not None:
         ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=8, zorder=6)
