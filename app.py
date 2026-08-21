@@ -276,7 +276,8 @@ def draw_geometry_mm(ax, theta):
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
     ax.set_ylim(-400, max(lid_height * 1.5, 300))
     
-    ax.set_aspect("equal")
+    # Vynucení čtvercového poměru stran pro samotný bílý plotbox
+    ax.set_box_aspect(1)
     ax.invert_xaxis()
     
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
@@ -309,6 +310,9 @@ def draw_force_profile(ax, theta_marker=None):
 
     if theta_marker is not None:
         ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=8, zorder=6)
+
+    # Vynucení stejného čtvercového poměru stran i pro pravý graf
+    ax.set_box_aspect(1)
 
     ax.tick_params(axis='both', labelsize=8)
     ax.set_xlabel("Úhel otevření (°)", fontsize=9)
