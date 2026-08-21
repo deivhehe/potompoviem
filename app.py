@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Výpočet plynových vzpěr")
+st.title("Vzpěrovač - Optimalizace na katalogové vzpěry (max 500 N)")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
@@ -16,13 +16,13 @@ DEFAULT_VALUES = {
     "max_angle": 80.0,
     "pocet_vzper": 4,
     # Hlavní pár
-    "B_x1": 400.0,
-    "B_y1": -250.0,
+    "B_x1": 300.0,
+    "B_y1": -100.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
     # Asistenční pár (zadní)
-    "B_x2": 175.0,
-    "B_y2": -301.0,
+    "B_x2": 100.0,
+    "B_y2": -150.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
     "F2_user": 200.0
@@ -37,7 +37,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -85,45 +85,26 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def find_mount_from_closed(B, L_closed, max_angle, H):
-    # V zavřeném stavu (0°) je vzdálenost čepu na víku P0 od B rovna přesně L_closed.
-    # Zároveň při max_angle musí být vzdálenost P_open od B rovna (L_closed + stroke).
-    # Pro zjištění pozice P0 na víku využijeme průsečík kružnic z 0° a max_angle.
-    # Zavřená kružnice: střed B, poloměr L_closed
-    # Otevřená kružnice: střed B_rot (B otočený o -max_angle), poloměr L_open
-    pass
-
-# Zde spočítáme čepy na víku tak, aby při 0° byla délka přesně L_closed a při max_angle odpovídala zdvihu
 def get_lid_mount(B, L_closed, stroke, max_angle, H, is_rear=False):
     L_open = L_closed + stroke
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
-    
     if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
-        # Náhradní fallback bod na víku
         return np.array([300.0, H_lid])
-        
     a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
     val = L_closed**2 - a**2
     h = np.sqrt(max(0, val))
-    
     P2 = B + a * (B_rot - B) / d
     x3 = P2[0] + h * (B_rot[1] - B[1]) / d
     y3 = P2[1] - h * (B_rot[0] - B[0]) / d
     x4 = P2[0] - h * (B_rot[1] - B[1]) / d
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-    
     candidates = [np.array([x3, y3]), np.array([x4, y4])]
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
-    
     if valid:
-        if is_rear:
-            return min(valid, key=lambda p: p[0]) # Zadní blíž k pantu
-        else:
-            return max(valid, key=lambda p: p[0]) # Přední dál od pantu
+        return min(valid, key=lambda p: p[0]) if is_rear else max(valid, key=lambda p: p[0])
     return candidates[0]
 
-# Čepy na víku vypočítané tak, aby v zavřeném stavu měly přesně L_closed
 P0_1 = get_lid_mount(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
 P0_2 = np.array([0.0, 0.0])
 if pocet_vzper == 4:
@@ -157,6 +138,7 @@ if pocet_vzper == 4:
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
+# Výpočet potřebné síly přední vzpěry s ohledem na požadavek, aby víko drželo nahoře
 valid_idx = np.abs(d_arms1) > 0.05 
 if np.any(valid_idx):
     req_M_front = M_grav - M_rear
@@ -166,29 +148,26 @@ else:
 
 F_1_rounded = max(50.0, np.ceil(max(0, F_1_strut) / 50.0) * 50)
 
+# Omezení / doporučení pro katalogové hodnoty (max 500 N)
+if F_1_rounded > 500:
+    st.warning(f"⚠️ Vypočítaná síla přední vzpěry ({F_1_rounded:.0f} N) přesahuje požadovaný limit 500 N! Zkuste v levém panelu posunout čep na vaně dál od pantu (větší X), abyste zlepšili pákový poměr.")
+
 M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success("✅ Model úspěšně přepočítán – délka při zavřeném víku přesně odpovídá zadané zasunuté délce!")
+st.success("✅ Model přepočítán!")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
-col2.metric("Přední čep víko (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
-if pocet_vzper == 4:
-    col3.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
-else:
-    col3.metric("Zadní vzpěra", "Není osazena")
-col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
+col2.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg", "(Mělo by být 5-10kg)")
+col3.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg", "(Mělo by být blízko 0kg)")
+col4.metric("Mrtvý bod zadní", f"{alpha_dead:.1f}°" if pocet_vzper==4 else "Není")
 
 st.divider()
 
 # --- VIZUALIZACE ---
 st.subheader("Vizualizace a dráha víka")
-current_angle = st.slider(
-    f"🔍 Animace víka (Zasunutá délka hl. vzpěry: {L_act1[0]:.0f} mm)", 
-    0.0, float(max_angle), 0.0, step=1.0
-)
-
+current_angle = st.slider("🔍 Animace víka", 0.0, float(max_angle), 0.0, step=1.0)
 idx = int((current_angle / max_angle) * 99)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
