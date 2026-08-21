@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
-st.title("Vzpěrovač - Kompletní výpočet a návrh sil")
+st.title("Vzpěrovač - CAD Synchronizovaný výpočet")
 
 # --- UI - BOČNÍ PANEL ---
 st.sidebar.header("1. Parametry víka")
@@ -62,15 +62,31 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# Výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
+# 1. Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
 angles_fine = np.linspace(0, 90, 1000)
 cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# Výpočet čepů na víku tak, aby respektovaly zadanou zasunutou délku v 0°
+# 2. Čepy na víku
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
-P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle) if pocet_vzper == 4 else np.array([0.0, 0.0])
+
+if pocet_vzper == 4:
+    # GEOMETRICKÁ VAZBA PRO SOLIDWORKS:
+    # V okamžiku, kdy víko dosáhne úhlu alpha_cg_over (přechod těžiště), 
+    # osa pomocné vzpěry musí procházet pantem [0,0]. 
+    # Z toho vypočítáme globální pozici čepu a otočením zpět získáme P2 v zavřeném stavu (0°).
+    v_dir = np.array([0.0, 0.0]) - B2
+    v_len = np.linalg.norm(v_dir)
+    if v_len > 0:
+        u_dir = v_dir / v_len
+        # Vzdálenost od pantu [0,0] v okamžiku přechodu musí odpovídat zadané zasunuté délce L_closed2
+        P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
+        P2 = rotate(P_dead_global, -alpha_cg_over)
+    else:
+        P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
+else:
+    P2 = np.array([0.0, 0.0])
 
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * 9.81 * (np.array([rotate(C_0, a)[0] for a in angles])) / 1000.0
@@ -114,7 +130,7 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie a síly úspěšně spočítány!")
+st.success("✅ Geometrie synchronizována se SolidWorksem!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
