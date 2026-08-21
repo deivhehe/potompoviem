@@ -250,17 +250,19 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie
+# Vykreslení geometrie (v mm)
 # ----------------------------------------------------------------------
 def draw_geometry(ax, theta):
     ax.clear()
-    box_w = max(L_lid, abs(Xb1_m) + 0.1, abs(Xb2_m) + 0.1 if use_aux else 0)
+    box_w_mm = max(lid_length, abs(Xb1) + 100, abs(Xb2) + 100 if use_aux else 0)
+    
+    # Obdélník vana/box v mm
     ax.add_patch(
-        plt.Rectangle((-0.02, -H_lid * 4), box_w + 0.02, H_lid * 4, fill=False,
+        plt.Rectangle((-20, -lid_height * 400), box_w_mm + 20, lid_height * 400, fill=False,
                       edgecolor="gray", linestyle=":", linewidth=1)
     )
 
-    corners_local = [(0, 0), (L_lid, 0), (L_lid, H_lid), (0, H_lid)]
+    corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
     corners_global = [rotate(lx, ly, theta) for lx, ly in corners_local]
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
@@ -269,29 +271,29 @@ def draw_geometry(ax, theta):
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12))
 
-    Xc, Yc = rotate(cg_x, cg_y, theta)
-    ax.plot(Xc, Yc, "o", color="red", markersize=10, zorder=6)
-    ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red")
+    Xc_mm, Yc_mm = rotate(cg_x_cm, cg_y_cm, theta)
+    ax.plot(Xc_mm, Yc_mm, "o", color="red", markersize=10, zorder=6)
+    ax.annotate("CG", (Xc_mm, Yc_mm), textcoords="offset points", xytext=(6, 6), color="red")
 
-    Xp1, Yp1 = rotate(lx1, ly1, theta)
-    ax.plot([Xb1_m, Xp1], [Yb1_m, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
-    ax.plot(Xb1_m, Yb1_m, "s", color="#1f77b4", markersize=7, zorder=5)
-    ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
+    Xp1_mm, Yp1_mm = rotate(lx1/mm, ly1/mm, theta)
+    ax.plot([Xb1, Xp1_mm], [Yb1, Yp1_mm], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
+    ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
+    ax.plot(Xp1_mm, Yp1_mm, "^", color="#1f77b4", markersize=7, zorder=5)
 
     if use_aux and pin2 is not None:
-        Xp2, Yp2 = rotate(lx2, ly2, theta)
-        ax.plot([Xb2_m, Xp2], [Yb2_m, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
-        ax.plot(Xb2_m, Yb2_m, "s", color="#d62728", markersize=7, zorder=5)
-        ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
+        Xp2_mm, Yp2_mm = rotate(lx2/mm, ly2/mm, theta)
+        ax.plot([Xb2, Xp2_mm], [Yb2, Yp2_mm], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
+        ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
+        ax.plot(Xp2_mm, Yp2_mm, "^", color="#d62728", markersize=7, zorder=5)
 
-    lim = max(L_lid, box_w) * 1.3 + 0.05
-    ax.set_xlim(-lim * 0.5, lim)
-    ax.set_ylim(-H_lid * 4 - 0.05, lim)
+    lim = max(lid_length, box_w_mm) * 1.3 + 50
+    ax.set_xlim(-lim * 0.2, lim)
+    ax.set_ylim(-lid_height * 400 - 50, lim)
     ax.set_aspect("equal")
     ax.invert_xaxis()
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10)
-    ax.set_xlabel("X (m)", fontsize=9)
-    ax.set_ylabel("Y (m)", fontsize=9)
+    ax.set_xlabel("X (mm)", fontsize=9)
+    ax.set_ylabel("Y (mm)", fontsize=9)
     ax.legend(loc="upper left", fontsize=7)
     ax.grid(alpha=0.3)
 
@@ -321,9 +323,9 @@ def draw_force_profile(ax, theta_marker=None):
 
 
 col_geo, col_force = st.columns(2)
-# Zmenšená velikost grafů z (5.5, 5.5) na (4.5, 4.0) pro lepší přehlednost
-fig1, ax1 = plt.subplots(figsize=(4.5, 4.0))
-fig2, ax2 = plt.subplots(figsize=(4.5, 4.0))
+# Oba grafy mají nyní identickou kompaktní velikost (3.8, 3.4)
+fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
+fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
 
 theta_disp = np.radians(theta_disp_deg)
 
