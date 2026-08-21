@@ -274,7 +274,6 @@ def draw_geometry_mm(ax, theta):
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
-    # Protaženo dolů do -400 mm
     ax.set_ylim(-400, max(lid_height * 1.5, 300))
     
     ax.set_aspect("equal")
@@ -323,6 +322,10 @@ col_geo, col_force = st.columns(2)
 fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
 fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
 
+# Striktně stejné odsazení zaručí shodnou velikost grafového pole
+for f in [fig1, fig2]:
+    f.subplots_adjust(top=0.88, bottom=0.20, left=0.20, right=0.95)
+
 theta_disp = np.radians(theta_disp_deg)
 
 if animate:
@@ -332,16 +335,11 @@ if animate:
         th = np.radians(deg)
         draw_geometry_mm(ax1, th)
         draw_force_profile(ax2, th)
-        fig1.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
-        fig2.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
         placeholder1.pyplot(fig1)
         placeholder2.pyplot(fig2)
         time.sleep(0.04)
 else:
     draw_geometry_mm(ax1, theta_disp)
     draw_force_profile(ax2, theta_disp)
-    fig1.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
-    fig2.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
     col_geo.pyplot(fig1)
     col_force.pyplot(fig2)
-    
