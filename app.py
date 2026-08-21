@@ -1,10 +1,11 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize, brentq
+import matplotlib.ticker as ticker
+from scipy.optimize import fsolve, brentq
 import time
 
-st.set_page_config(page_title="Optimalizovaný návrh plynových vzpěr víka", layout="wide")
+st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 
 G = 9.81  # m/s^2
 
@@ -24,6 +25,28 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
+def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+    def eqs(v):
+        lx, ly = v
+        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
+        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
+        return [e1, e2]
+
+    guesses = [
+        (L_lid_mm * 0.5, H_lid_mm * 0.5),
+        (L_lid_mm * 0.75, H_lid_mm * 0.3),
+        (L_lid_mm * 0.3, H_lid_mm * 0.7),
+        (L_lid_mm * 0.9, H_lid_mm * 0.2)
+    ]
+    
+    for g0 in guesses:
+        sol, info, ier, _ = fsolve(eqs, g0, full_output=True)
+        if ier == 1 and np.linalg.norm(info["fvec"]) < 1e-3:
+            return sol, True
+    return None, False
+
+
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
     f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
     if f(0.0) * f(theta_max) >= 0:
@@ -35,7 +58,7 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar (Vstupy)
+# UI - Sidebar (Zadávané hodnoty)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 1109.0, 10.0)
@@ -53,126 +76,73 @@ cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np
 st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("5) Parametry vzpěr")
-st.sidebar.subheader("Hlavní vzpěra")
+st.sidebar.header("5) Hlavní vzpěra")
+Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
+Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
-st.sidebar.subheader("Pomocná vzpěra")
+st.sidebar.header("6) Pomocná vzpěra")
+Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
+Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
 L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
 S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
-
-st.sidebar.header("6) Cílové síly do ruky")
-target_open_N = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 150.0, 5.0)
-target_close_N = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -120.0, 5.0)
 
 st.sidebar.header("7) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Optimalizační jádro (Syntéza mechanismu)
+# Výpočetní jádro
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main = 2
 n_aux = 2
 
-def optimize_mechanism():
-    # Optimalizujeme pouze geometrii uložení: [Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2]
-    def objective(vars):
-        Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2 = vars
-        
-        # Geometrické rezidua délek vzpěr
-        e1 = (lx1 - Xb1)**2 + (ly1 - Yb1)**2 - L0_1**2
-        Xp1_max, Yp1_max = rotate_mm(lx1, ly1, theta_max)
-        e2 = (Xp1_max - Xb1)**2 + (Yp1_max - Yb1)**2 - (L0_1 + S1)**2
-        
-        e3 = (lx2 - Xb2)**2 + (ly2 - Yb2)**2 - L0_2**2
-        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
-        e4 = (Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2 - (L0_2 + S2)**2
+# Výpočet pozic čepů na víku
+pin1, ok1 = solve_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+pin2, ok2 = solve_pin_mm(Xb2, Yb2, L0_2, S2, theta_max, lid_length, lid_height)
 
-        # Analytický výpočet sil F_main a F_aux pro danou geometrii
-        cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
-        Tg_0 = -lid_mass * G * cg_xm
-        h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
-        
-        d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
-        d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
-        
-        Tg_max = -lid_mass * G * (cg_xm * np.cos(theta_max) - cg_ym * np.sin(theta_max))
-        hx_m, hy_m = rotate_mm(handle_x_mm, handle_y_mm, theta_max)
-        h_arm_max = np.hypot(hx_m, hy_m) * 0.001
-        
-        d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
-        d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
+if not ok1 or not ok2:
+    st.error("⚠️ Pro zadané parametry nelze geometricky vyřešit pozici čepů vzpěr.")
+    st.stop()
 
-        # Sestavení soustavy rovnic pro síly [Fm, Fa]
-        # A * [Fm, Fa]^T = B
-        A = np.array([
-            [n_main * d1_0, n_aux * d2_0],
-            [n_main * d1_max, n_aux * d2_max]
-        ])
-        B = np.array([
-            -(Tg_0 + target_open_N * h_arm_0),
-            -(Tg_max + target_close_N * h_arm_max)
-        ])
-        
-        try:
-            Fm, Fa = np.linalg.solve(A, B)
-        except np.linalg.LinAlgError:
-            return 1e6
-            
-        # Penalizace za záporné nebo příliš velké síly vzpěr
-        penalty_forces = 0.0
-        if Fm < 100 or Fm > 2500: penalty_forces += (Fm - 500)**2 * 0.01
-        if Fa < 100 or Fa > 2500: penalty_forces += (Fa - 500)**2 * 0.01
+lx1, ly1 = pin1
+lx2, ly2 = pin2
 
-        return (e1**2 + e2**2 + e3**2 + e4**2) * 10.0 + penalty_forces
+theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 
-    x0 = [500.0, -100.0, 600.0, 400.0, 200.0, -200.0, 300.0, 200.0]
-    bounds = [
-        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height),
-        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height)
-    ]
-
-    res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 3000})
-    return res.x if res.success else x0
-
-opt_vars = optimize_mechanism()
-Xb1, Yb1, lx1, ly1, Xb2, Yb2, lx2, ly2 = opt_vars
-
-# Dopočítání finálních sil přesnou lineární soustavou
+# Momentové rovnice pro výpočet potřebných sil vzpěr
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
 Tg_0 = -lid_mass * G * cg_xm
 h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
+
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
 
 Tg_max = -lid_mass * G * (cg_xm * np.cos(theta_max) - cg_ym * np.sin(theta_max))
 hx_m, hy_m = rotate_mm(handle_x_mm, handle_y_mm, theta_max)
 h_arm_max = np.hypot(hx_m, hy_m) * 0.001
+
 d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
 d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
 
-A_final = np.array([
+# Sestavení a řešení soustavy pro síly F_main a F_aux
+A_mat = np.array([
     [n_main * d1_0, n_aux * d2_0],
     [n_main * d1_max, n_aux * d2_max]
 ])
-B_final = np.array([
-    -(Tg_0 + target_open_N * h_arm_0),
-    -(Tg_max + target_close_N * h_arm_max)
+B_vec = np.array([
+    -Tg_0,
+    -Tg_max
 ])
 
 try:
-    F_main, F_aux = np.linalg.solve(A_final, B_final)
+    F_main, F_aux = np.linalg.solve(A_mat, B_vec)
 except np.linalg.LinAlgError:
     F_main, F_aux = 500.0, 500.0
 
-theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
-
 def Tg(theta):
-    cg_xm = cg_x_mm * 0.001
-    cg_ym = cg_y_mm * 0.001
     return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
 
 def handle_moment_arm_m(theta):
@@ -189,20 +159,20 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Optimalizovaný návrh plynových vzpěr víka")
+st.title("🔧 Návrh plynových vzpěr víka (Přímý výpočet zadané geometrie)")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Dopočítaná síla hlavní (1 ks)", f"{F_main:.0f} N")
-c2.metric("Dopočítaná síla pomocné (1 ks)", f"{F_aux:.0f} N")
+c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
+c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
 c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
 c4.metric("Síla do ruky @max", f"{f_max_val:.1f} N", "pomáhá zavírat" if f_max_val < 0 else "tlačí ven")
 
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Hlavní vana X / Y", f"{Xb1:.1f} / {Yb1:.1f} mm")
-c6.metric("Hlavní čep X / Y", f"{lx1:.1f} / {ly1:.1f} mm")
-c7.metric("Pomocná vana X / Y", f"{Xb2:.1f} / {Yb2:.1f} mm")
-c8.metric("Pomocná čep X / Y", f"{lx2:.1f} / {ly2:.1f} mm")
+c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
+c6.metric("Čep na víku – hlavní Y", f"{ly1:.1f} mm")
+c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm")
+c8.metric("Čep na víku – pomocná Y", f"{ly2:.1f} mm")
 
 if theta_dead is not None:
     st.info(f"🔹 Mrtvý bod při úhlu **{np.degrees(theta_dead):.1f}°**")
