@@ -1,4 +1,4 @@
-code = """import streamlit as st
+import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
@@ -27,7 +27,6 @@ B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", value=-300.0, step=10.0)
 B1 = np.array([B_x1, B_y1])
 L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", value=600.0, step=10.0)
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=250.0, step=10.0)
-L_comp1 = L_ext1 - stroke1
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
@@ -38,10 +37,9 @@ if pocet_vzper == 4:
     L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", value=300.0, step=10.0)
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", value=100.0, step=10.0)
     F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", value=150.0, step=50.0)
-    L_comp2 = L_ext2 - stroke2
 else:
     F2_user = 0
-    L_comp2, L_ext2, B2 = 0, 0, np.array([0,0])
+    B2 = np.array([0,0])
 
 g = 9.81
 H = np.array([0.0, 0.0]) # Pant
@@ -54,37 +52,77 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def find_lid_mount(B, L_comp, L_ext, max_angle, H, prefer_higher=True):
+def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
+    """
+    Hlavní vzpěra: 
+    - Při 0° je zasunutá (+ 5mm rezerva) -> délka L_closed = L_ext - stroke + 5
+    - Při max_angle je vysunutá -> délka L_open = L_ext
+    Kružnice 1: stř. B, poloměr L_closed (v zavřeném stavu)
+    Kružnice 2: stř. B otočený o -max_angle, poloměr L_open (v otevřeném stavu rotovaném zpět)
+    """
+    L_closed = L_ext - stroke + 5.0
+    L_open = L_ext
+    
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
-    if d > (L_comp + L_ext) or d < abs(L_comp - L_ext) or d == 0:
+    if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
         return None
-    a = (L_comp**2 - L_ext**2 + d**2) / (2 * d)
-    val = L_comp**2 - a**2
+    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
+    val = L_closed**2 - a**2
     if val < 0: return None
     h = np.sqrt(val)
     P2 = B + a * (B_rot - B) / d
+    
     x3 = P2[0] + h * (B_rot[1] - B[1]) / d
     y3 = P2[1] - h * (B_rot[0] - B[0]) / d
     x4 = P2[0] - h * (B_rot[1] - B[1]) / d
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
-    if p3[0] > 0 and p4[0] <= 0: return p3
-    if p4[0] > 0 and p3[0] <= 0: return p4
-    if prefer_higher:
-        return p3 if p3[1] > p4[1] else p4
-    else:
-        return p3 if p3[1] < p4[1] else p4
+    valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
+    if not valid_points: return None
+    return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+
+def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
+    """
+    Zadní vzpěra (opačný chod):
+    - Při 0° je vysunutá -> délka L_closed = L_ext
+    - Při max_angle je zasunutá (+ 5mm rezerva) -> délka L_open = L_ext - stroke + 5
+    """
+    L_closed = L_ext
+    L_open = L_ext - stroke + 5.0
+    
+    B_rot = rotate(B, H, -max_angle)
+    d = np.linalg.norm(B_rot - B)
+    if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
+        return None
+    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
+    val = L_closed**2 - a**2
+    if val < 0: return None
+    h = np.sqrt(val)
+    P2 = B + a * (B_rot - B) / d
+    
+    x3 = P2[0] + h * (B_rot[1] - B[1]) / d
+    y3 = P2[1] - h * (B_rot[0] - B[0]) / d
+    x4 = P2[0] - h * (B_rot[1] - B[1]) / d
+    y4 = P2[1] + h * (B_rot[0] - B[0]) / d
+    p3, p4 = np.array([x3, y3]), np.array([x4, y4])
+    
+    valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
+    if not valid_points: return None
+    # Pro zadní chceme zpravidla nižší bod blíž k pantu
+    return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
 
 # Výpočet čepů
-P0_1 = find_lid_mount(B1, L_comp1, L_ext1, max_angle, H, prefer_higher=True)
+P0_1 = find_lid_mount_main(B1, L_ext1, stroke1, max_angle, H)
 P0_2 = None
 if pocet_vzper == 4:
-    P0_2 = find_lid_mount(B2, L_comp2, L_ext2, max_angle, H, prefer_higher=False)
+    P0_2 = find_lid_mount_rear(B2, L_ext2, stroke2, max_angle, H)
 
-if P0_1 is None or (pocet_vzper == 4 and P0_2 is None):
-    st.error("❌ Geometrické řešení neexistuje. Změňte pozice na vaně nebo délky vzpěr.")
+if P0_1 is None:
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry.")
+elif pocet_vzper == 4 and P0_2 is None:
+    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Změňte pozici zadního čepu na vaně nebo rozměry vzpěry.")
 else:
     angles = np.linspace(0, max_angle, 100)
     M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
@@ -108,7 +146,7 @@ else:
         d_arms2, L_act2 = get_kinematics(P0_2, B2)
         M_rear = (F2_user * 2) * d_arms2
 
-    valid_idx = np.abs(d_arms1) > 0.01
+    valid_idx = np.abs(d_arms1) > 0.015 
     if np.any(valid_idx):
         req_M_front = (M_grav * 1.1) - M_rear
         F_1_total = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx]))
@@ -118,16 +156,19 @@ else:
     F_1_strut = max(0, F_1_total / 2)
     F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 
+    if F_1_rounded > 1500:
+        st.warning(f"⚠️ Vypočítaná síla přední vzpěry je extrémně vysoká ({F_1_rounded:.0f} N)! Zkuste posunout čep dál od pantu.")
+
     M_front_act = (F_1_rounded * 2) * d_arms1
     M_net = M_front_act + M_rear - M_grav
     F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
     st.success("✅ Geometrie kompletní!")
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Přední vzpěra čep (X, Y)", f"[{P0_1[0]:.0f}, {P0_1[1]:.0f}]")
+    col1.metric("Přední vzpěra čep (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
     col2.metric("Potřebná síla PŘEDNÍ", f"{F_1_rounded:.0f} N", "(1ks)")
     if pocet_vzper == 4:
-        col3.metric("Zadní vzpěra čep (X, Y)", f"[{P0_2[0]:.0f}, {P0_2[1]:.0f}]")
+        col3.metric("Zadní vzpěra čep (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
     else:
         col3.metric("Zadní vzpěra", "Není")
     col4.metric("Síla do ruky - otevřeno", f"{-F_user_kg[-1]:.1f} kg")
@@ -149,13 +190,13 @@ else:
 
     P_cur1 = rotate(P0_1, H, current_angle)
     ax1.plot(*B1, 'bs')
-    ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label='Hlavní vzpěra')
+    ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label=f'Hlavní ({L_act1[idx]:.0f} mm)')
     ax1.plot(*P_cur1, 'bo')
 
     if pocet_vzper == 4:
         P_cur2 = rotate(P0_2, H, current_angle)
         ax1.plot(*B2, 'rs')
-        ax1.plot([B2[0], P_cur2[0]], [B2[1], P_cur2[1]], 'r-', lw=2, label='Asistenční vzpěra')
+        ax1.plot([B2[0], P_cur2[0]], [B2[1], P_cur2[1]], 'r-', lw=2, label=f'Asistenční ({L_act2[idx]:.0f} mm)')
         ax1.plot(*P_cur2, 'ro')
 
     ax1.set_aspect('equal')
@@ -166,7 +207,6 @@ else:
     ax1.set_xlim(-max_r*0.2, max_r)
     ax1.set_ylim(-max_r*0.5, max_r)
     
-    # --- ZDE JE MAGIE PRO PŘEVRÁCENÍ GRAFU ---
     ax1.invert_xaxis() 
 
     # Graf 2
@@ -189,7 +229,3 @@ else:
     ax2.grid(True, linestyle=':')
 
     st.pyplot(fig)
-"""
-with open("app.py", "w", encoding="utf-8") as f:
-    f.write(code)
-print("File title updated to Vzpěrovač.")
