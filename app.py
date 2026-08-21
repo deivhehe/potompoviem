@@ -18,14 +18,18 @@ DEFAULT_VALUES = {
     # Hlavní pár
     "B_x1": 400.0,
     "B_y1": -250.0,
+    "P_x1": 415.0,
+    "P_y1": 490.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
     # Asistenční pár (zadní)
-    "B_x2": 50.0,
-    "B_y2": -80.0,
-    "L_closed2": 300.0,
-    "stroke2": 100.0,
-    "F2_user": 150.0
+    "B_x2": 175.0,
+    "B_y2": -301.0,
+    "P_x2": 150.0,
+    "P_y2": 750.0,
+    "L_closed2": 560.0,
+    "stroke2": 120.0,
+    "F2_user": 200.0
 }
 
 for key, value in DEFAULT_VALUES.items():
@@ -37,7 +41,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -56,79 +60,43 @@ pocet_vzper = st.session_state["pocet_vzper"]
 st.sidebar.header("2. Hlavní vzpěry (Přední)")
 B_x1 = st.sidebar.number_input("Hlavní - čep vana X", step=10.0, key="B_x1")
 B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", step=10.0, key="B_y1")
+P_x1 = st.sidebar.number_input("Hlavní - čep víko X", step=10.0, key="P_x1")
+P_y1 = st.sidebar.number_input("Hlavní - čep víko Y", step=10.0, key="P_y1")
 B1 = np.array([B_x1, B_y1])
+P0_1 = np.array([P_x1, P_y1])
 L_closed1 = st.sidebar.number_input("Hlavní - Zasunutá délka (mm)", step=10.0, key="L_closed1")
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
-    st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
-    st.sidebar.info("Osa zadní vzpěry v mrtvém úhlu (těžiště nad pantem) prochází osou pantu.")
+    st.sidebar.header("3. Asistenční vzpěry (Zadní)")
     B_x2 = st.sidebar.number_input("Zadní - čep vana X", step=10.0, key="B_x2")
     B_y2 = st.sidebar.number_input("Zadní - čep vana Y", step=10.0, key="B_y2")
+    P_x2 = st.sidebar.number_input("Zadní - čep víko X", step=10.0, key="P_x2")
+    P_y2 = st.sidebar.number_input("Zadní - čep víko Y", step=10.0, key="P_y2")
     B2 = np.array([B_x2, B_y2])
+    P0_2 = np.array([P_x2, P_y2])
     L_closed2 = st.sidebar.number_input("Zadní - Zasunutá délka (mm)", step=10.0, key="L_closed2")
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
     F2_user = st.sidebar.number_input("Síla zadní vzpěry (N, 1ks)", step=50.0, key="F2_user")
 else:
     F2_user = 0
-    B2 = np.array([0,0])
+    B2, P0_2 = np.array([0,0]), np.array([0,0])
     L_closed2, stroke2 = 0, 0
 
 g = 9.81
 H = np.array([0.0, 0.0]) # Pant
 
 # --- MATEMATIKA ---
+angles = np.linspace(0, max_angle, 100)
+M_grav = m * g * (np.array([np.cos(np.radians(a))*C_0[0] - np.sin(np.radians(a))*C_0[1] for a in angles]) - H[0]) / 1000.0
+
 def rotate(pt, origin, angle_deg):
     a = np.radians(angle_deg)
     return np.array([
         origin[0] + (pt[0] - origin[0]) * np.cos(a) - (pt[1] - origin[1]) * np.sin(a),
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
-
-def find_main_mount(B, L_closed_base, stroke, max_angle, H):
-    L_closed = max(L_closed_base + 5.0, 20.0)
-    L_open = L_closed_base + stroke
-    B_rot = rotate(B, H, -max_angle)
-    d = np.linalg.norm(B_rot - B)
-    if d == 0: return np.array([200.0, 50.0])
-    sum_r = L_closed + L_open
-    diff_r = abs(L_closed - L_open)
-    if d > sum_r: d = sum_r
-    if d < diff_r: d = diff_r + 0.1
-    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
-    val = L_closed**2 - a**2
-    h = np.sqrt(max(0, val))
-    P2 = B + a * (B_rot - B) / d
-    x3 = P2[0] + h * (B_rot[1] - B[1]) / d
-    y3 = P2[1] - h * (B_rot[0] - B[0]) / d
-    x4 = P2[0] - h * (B_rot[1] - B[1]) / d
-    y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-    candidates = [np.array([x3, y3]), np.array([x4, y4])]
-    valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
-    return max(valid, key=lambda p: p[0]) if valid else candidates[0]
-
-# 1. Výpočet čepu hlavní vzpěry
-P0_1 = find_main_mount(B1, L_closed1, stroke1, max_angle, H)
-
-# 2. Výpočet mrtvého úhlu (kde je těžiště nad pantem)
-angles_test = np.linspace(0, max_angle, 500)
-C_test_x = np.array([rotate(C_0, H, a)[0] for a in angles_test])
-dead_angle_idx = np.argmin(np.abs(C_test_x - H[0]))
-alpha_dead = angles_test[dead_angle_idx]
-
-P0_2 = np.array([100.0, 20.0])
-if pocet_vzper == 4:
-    v_dir = H - B2
-    v_len = np.linalg.norm(v_dir)
-    if v_len > 0:
-        u_dir = v_dir / v_len
-        P_dead_global = H + u_dir * L_closed2
-        P0_2 = rotate(P_dead_global, H, -alpha_dead)
-
-# Kinematika
-angles = np.linspace(0, max_angle, 100)
-M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
 
 def get_kinematics(P0, B):
     d_arms, L_act = [], []
@@ -149,6 +117,13 @@ if pocet_vzper == 4:
     d_arms2, L_act2 = get_kinematics(P0_2, B2)
     M_rear = (F2_user * 2) * d_arms2
 
+# Výpočet mrtvého úhlu zadní vzpěry (kde d_arms2 přechází přes nulu)
+alpha_dead = 0.0
+if pocet_vzper == 4:
+    cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
+    if len(cross_idx) > 0:
+        alpha_dead = angles[cross_idx[0]]
+
 valid_idx = np.abs(d_arms1) > 0.05 
 if np.any(valid_idx):
     req_M_front = M_grav - M_rear
@@ -162,33 +137,32 @@ M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success(f"✅ Výpočet hotov! Mrtvý bod (těžiště nad pantem) je při úhlu: **{alpha_dead:.1f}°**.")
+st.success("✅ Model načten podle zadaných čepů!")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
-col2.metric("Přední čep víko (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
 if pocet_vzper == 4:
-    col3.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+    col2.metric("Mrtvý bod zadní vzpěry", f"{alpha_dead:.1f}°")
 else:
-    col3.metric("Zadní vzpěra", "Není osazena")
+    col2.metric("Zadní vzpěra", "Není osazena")
+col3.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg")
 col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
 
 st.divider()
 
-# --- VIZUALIZACE A POSUVNÍK S OZNAČENÍM MRTVÉHO BODU ---
+# --- VIZUALIZACE A POSUVNÍK ---
 st.subheader("Vizualizace a dráha víka")
 current_angle = st.slider(
-    f"🔍 Animace víka (Mrtvý bod nastaven na {alpha_dead:.1f}°)", 
+    f"🔍 Animace víka (Mrtvý bod zadní vzpěry: {alpha_dead:.1f}°)", 
     0.0, float(max_angle), 0.0, step=1.0
 )
 
-# Indikace polohy vůči mrtvému bodu
 if pocet_vzper == 4:
     if current_angle < alpha_dead - 1.0:
-        st.info(f"ℹ️ Aktuální úhel ({current_angle:.1f}°) je **před mrtvým bodem** – zadní vzpěra pomáhá zvedat.")
+        st.info(f"ℹ️ Úhel ({current_angle:.1f}°) je **před mrtvým bodem** – zadní vzpěra pomáhá zvedat.")
     elif current_angle > alpha_dead + 1.0:
-        st.warning(f"⚠️ Aktuální úhel ({current_angle:.1f}°) je **za mrtvým bodem** – zadní vzpěra táhne dolů a pomáhá zavírat.")
+        st.warning(f"⚠️ Úhel ({current_angle:.1f}°) je **za mrtvým bodem** – zadní vzpěra táhne dolů.")
     else:
-        st.success(f"🎯 **Právě v mrtvém bodě ({alpha_dead:.1f}°)** – těžiště je v ose nad pantem, rameno zadní vzpěry je nulové!")
+        st.success(f"🎯 **Právě v mrtvém bodě ({alpha_dead:.1f}°)** – osa zadní vzpěry prochází osou pantu!")
 
 idx = int((current_angle / max_angle) * 99)
 
@@ -227,7 +201,7 @@ ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10, label=f"Nyní: {-F
 ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2, label="Víko padá")
 ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2, label="Víko drží samo")
 
-if pocet_vzper == 4:
+if pocet_vzper == 4 and alpha_dead > 0:
     ax2.axvline(alpha_dead, color='orange', linestyle='--', lw=2, label=f'Mrtvý bod ({alpha_dead:.1f}°)')
 
 ax2.set_xlabel("Úhel otevření (°)")
