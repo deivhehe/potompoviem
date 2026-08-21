@@ -53,7 +53,7 @@ cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np
 st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("5) Parametry vzpěr (zádává se jen hardware)")
+st.sidebar.header("5) Parametry vzpěr")
 st.sidebar.subheader("Hlavní vzpěra")
 L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
@@ -63,8 +63,8 @@ L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000
 S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
 st.sidebar.header("6) Cílové síly do ruky")
-target_open_N = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 160.0, 5.0)
-target_close_N = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -200.0, 5.0)
+target_open_N = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 150.0, 5.0)
+target_close_N = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -120.0, 5.0)
 
 st.sidebar.header("7) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
@@ -78,22 +78,19 @@ n_main = 2
 n_aux = 2
 
 def optimize_mechanism():
-    # Vektor proměnných k optimalizaci: 
-    # [Xb1, Yb1, lx1, ly1, F_main, Xb2, Yb2, lx2, ly2, F_aux]
     def objective(vars):
         Xb1, Yb1, lx1, ly1, Fm, Xb2, Yb2, lx2, ly2, Fa = vars
         
-        # Geometrické podmínky pro hlavní vzpěru
+        # Geometrické rovnice pro délky vzpěr
         e1 = (lx1 - Xb1)**2 + (ly1 - Yb1)**2 - L0_1**2
         Xp1_max, Yp1_max = rotate_mm(lx1, ly1, theta_max)
         e2 = (Xp1_max - Xb1)**2 + (Yp1_max - Yb1)**2 - (L0_1 + S1)**2
         
-        # Geometrické podmínky pro pomocnou vzpěru
         e3 = (lx2 - Xb2)**2 + (ly2 - Yb2)**2 - L0_2**2
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         e4 = (Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2 - (L0_2 + S2)**2
 
-        # Momentové rovnice pro splnění cílových sil @0° a @max
+        # Momentové rovnice pro splnění přesných sil do ruky
         cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
         Tg_0 = -lid_mass * G * cg_xm
         h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
@@ -110,28 +107,22 @@ def optimize_mechanism():
         d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
         F_hand_max = -(Tg_max + n_main * Fm * d1_max + n_aux * Fa * d2_max) / h_arm_max
 
-        # Chyba splnění cílů
-        err_open = (F_hand_0 - target_open_N)**2
-        err_close = (F_hand_max - target_close_N)**2
-        err_geom = e1**2 + e2**2 + e3**2 + e4**2
+        # Vysoké váhy pro přesné trefení požadovaných sil
+        err_open = 100.0 * (F_hand_0 - target_open_N)**2
+        err_close = 100.0 * (F_hand_max - target_close_N)**2
+        err_geom = 10.0 * (e1**2 + e2**2 + e3**2 + e4**2)
 
-        return err_geom * 10.0 + err_open + err_close
+        return err_geom + err_open + err_close
 
-    # Počáteční odhady
-    x0 = [500.0, -100.0, 600.0, 400.0, 500.0, 200.0, -200.0, 300.0, 200.0, 300.0]
-    
-    # Hranice pro proměnné [VanaX, VanaY, ČepX, ČepY, Síla]
+    x0 = [400.0, -150.0, 700.0, 500.0, 400.0, 100.0, -100.0, 200.0, 150.0, 250.0]
     bounds = [
-        (-200, lid_length), (-500, 300), (0, lid_length), (0, lid_height), (50, 2500), # Hlavní
-        (-200, lid_length), (-500, 300), (0, lid_length), (0, lid_height), (50, 2500)  # Pomocná
+        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height), (50, 3000),
+        (-300, lid_length), (-600, 300), (0, lid_length), (0, lid_height), (50, 3000)
     ]
 
-    res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 2000})
-    if res.success:
-        return res.x
-    return x0
+    res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 3000})
+    return res.x if res.success else x0
 
-# Spuštění optimalizace pro nalezení ideálních parametrů
 opt_vars = optimize_mechanism()
 Xb1, Yb1, lx1, ly1, F_main, Xb2, Yb2, lx2, ly2, F_aux = opt_vars
 
