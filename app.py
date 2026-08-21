@@ -170,8 +170,13 @@ if use_aux:
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 h_arm_0 = handle_moment_arm_m(0.0)
 
+# Výpočet síly hlavní vzpěry tak, aby reflektovala i požadavek na zavírání v max úhlu
+d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
+h_arm_max = handle_moment_arm_m(theta_max)
+
 if use_aux and pin2 is not None:
     d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
+    d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
     moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
@@ -179,8 +184,17 @@ if use_aux and pin2 is not None:
     F_aux = F_aux_catalog
 else:
     F_aux = None
+    # Optimalizační propočet F_main tak, aby zohlednil požadavek na @0 i @max
     denom = n_main * d1_0
     F_main = (-(Tg(0.0) + target_open_N_input * h_arm_0)) / denom if abs(denom) > 1e-9 else 0.0
+    
+    # Pokud uživatel chce korigovat sílu na max, můžeme udělat vážený průměr nebo čistý přepočet dle max pozice
+    # Zde přizpůsobíme F_main primárně dle požadavku na zavírání @max, pokud je aktivní:
+    denom_max = n_main * d1_max
+    if abs(denom_max) > 1e-9:
+        F_main_max_target = (-(Tg(theta_max) + target_close_N_input * h_arm_max)) / denom_max
+        # Využijeme kompromis nebo primárně cílíme na zavírací sílu podle zadání
+        F_main = 0.5 * F_main + 0.5 * F_main_max_target
 
 def F_hand(theta):
     Ts_main = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
