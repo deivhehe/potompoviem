@@ -129,13 +129,13 @@ def find_dead_point(cg_x, cg_y, theta_max):
 # UI - Sidebar (vstupy)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
-lid_length = st.sidebar.number_input("Délka víka (cm)", 5.0, 300.0, 60.0, 1.0)
-lid_height = st.sidebar.number_input("Výška / tloušťka víka (cm)", 1.0, 100.0, 6.0, 0.5)
+lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 600.0, 10.0)
+lid_height = st.sidebar.number_input("Výška / tloušťka víka (mm)", 10.0, 1000.0, 60.0, 5.0)
 lid_mass = st.sidebar.number_input("Hmotnost víka (kg)", 0.1, 500.0, 15.0, 0.5)
 
 st.sidebar.header("2) Těžiště víka (od pantu, v zavřeném stavu)")
-cg_x_cm = st.sidebar.number_input("Těžiště X (cm)", 0.0, 300.0, lid_length * 0.5, 0.5)
-cg_y_cm = st.sidebar.number_input("Těžiště Y (cm)", -50.0, 100.0, lid_height * 0.5, 0.5)
+cg_x_cm = st.sidebar.number_input("Těžiště X (mm)", 0.0, 3000.0, lid_length * 0.5, 5.0)
+cg_y_cm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, lid_height * 0.5, 5.0)
 
 st.sidebar.header("3) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 95)
@@ -145,17 +145,17 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-Xb1 = st.sidebar.number_input("Vana X (cm)", -100.0, 300.0, lid_length * 0.35, 0.5)
-Yb1 = st.sidebar.number_input("Vana Y (cm)", -100.0, 100.0, lid_height * 3.0, 0.5)
-L0_1 = st.sidebar.number_input("Zasunutá délka @0° (cm)", 3.0, 200.0, 22.0, 0.5)
-S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (cm)", 1.0, 150.0, 15.0, 0.5)
+Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, lid_length * 0.35, 5.0)
+Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, lid_height * 3.0, 5.0)
+L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 220.0, 5.0)
+S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 150.0, 5.0)
 
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
-    Xb2 = st.sidebar.number_input("Vana X pomocná (cm)", -100.0, 300.0, -lid_length * 0.15, 0.5)
-    Yb2 = st.sidebar.number_input("Vana Y pomocná (cm)", -100.0, 100.0, lid_height * 2.0, 0.5)
-    L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (cm)", 3.0, 200.0, 15.0, 0.5)
-    S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (cm) [info]", 1.0, 150.0, 10.0, 0.5)
+    Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, -lid_length * 0.15, 5.0)
+    Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, lid_height * 2.0, 5.0)
+    L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 150.0, 5.0)
+    S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm) [info]", 10.0, 1500.0, 100.0, 5.0)
 
 st.sidebar.header("5) Cílové síly do ruky")
 target_open_kg = st.sidebar.slider("Síla na otevření @0° (kgf)", 0.5, 15.0, 5.0, 0.5)
@@ -168,18 +168,18 @@ theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, the
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Převody na SI (metry, radiány)
+# Převody na SI (metry, radiány) - vstupy jsou v milimetrech
 # ----------------------------------------------------------------------
-cm = 0.01
-L_lid = lid_length * cm
-H_lid = lid_height * cm
+mm = 0.001
+L_lid = lid_length * mm
+H_lid = lid_height * mm
 m = lid_mass
-cg_x, cg_y = cg_x_cm * cm, cg_y_cm * cm
+cg_x, cg_y = cg_x_cm * mm, cg_y_cm * mm
 theta_max = np.radians(theta_max_deg)
 n_main = 2
 
-Xb1_m, Yb1_m = Xb1 * cm, Yb1 * cm
-L0_1_m, S1_m = L0_1 * cm, S1 * cm
+Xb1_m, Yb1_m = Xb1 * mm, Yb1 * mm
+L0_1_m, S1_m = L0_1 * mm, S1 * mm
 
 pin1, res1 = solve_main_pin(Xb1_m, Yb1_m, L0_1_m, S1_m, theta_max)
 lx1, ly1 = pin1
@@ -188,8 +188,8 @@ theta_dead = find_dead_point(cg_x, cg_y, theta_max)
 
 pin2 = None
 if use_aux:
-    Xb2_m, Yb2_m = Xb2 * cm, Yb2 * cm
-    L0_2_m = L0_2 * cm
+    Xb2_m, Yb2_m = Xb2 * mm, Yb2 * mm
+    L0_2_m = L0_2 * mm
     if theta_dead is None:
         st.warning(
             "Těžiště víka nepřechází v zadaném rozsahu úhlů přes osu pantu "
@@ -266,11 +266,11 @@ c4.metric(
 )
 
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Čep na víku – hlavní X", f"{lx1/cm:.1f} cm")
-c6.metric("Čep na víku – hlavní Y", f"{ly1/cm:.1f} cm")
+c5.metric("Čep na víku – hlavní X", f"{lx1/mm:.1f} mm")
+c6.metric("Čep na víku – hlavní Y", f"{ly1/mm:.1f} mm")
 if use_aux and pin2 is not None:
-    c7.metric("Čep na víku – pomocná X", f"{lx2/cm:.1f} cm")
-    c8.metric("Čep na víku – pomocná Y", f"{ly2/cm:.1f} cm")
+    c7.metric("Čep na víku – pomocná X", f"{lx2/mm:.1f} mm")
+    c8.metric("Čep na víku – pomocná Y", f"{ly2/mm:.1f} mm")
 else:
     c7.metric("Čep na víku – pomocná X", "—")
     c8.metric("Čep na víku – pomocná Y", "—")
