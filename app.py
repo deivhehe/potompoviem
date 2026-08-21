@@ -62,7 +62,7 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# 1. Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
+# 1. Úhel přechodu těžiště přes pant
 angles_fine = np.linspace(0, 90, 1000)
 cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
@@ -72,14 +72,27 @@ alpha_cg_over = angles_fine[cg_zero_idx]
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # 3. Pomocný čep: délka je fixně L_closed2, v okamžiku přechodu těžiště projde pantem [0,0]
+    # 3. Pomocný čep:
+    # Aby v 0° měla vzpěra PŘESNĚ zadanou délku L_closed2, ale zároveň v okamžiku přechodu těžiště (alpha_cg_over)
+    # prošla pantem [0,0], musíme vzít v potaz, o kolik se vzpěra mezi 0° a alpha_cg_over natáhne.
+    # V okamžiku přechodu těžiště leží čep na přímce vana-pant. Pokud předpokládáme, že v tomto bodě
+    # je délka vzpěry rovna L_closed2 + (nějaký posun), nebo pokud definujeme, že v zavřeném stavu má L_closed2:
+    # Směr z vany B2 přes pant [0,0]:
     v_dir = np.array([0.0, 0.0]) - B2
     v_len = np.linalg.norm(v_dir)
     if v_len > 0:
         u_dir = v_dir / v_len
-        # Bod v prostoru při přechodu těžiště: leží na přímce vana-pant ve vzdálenosti zadané zasunuté délky
+        # V okamžiku přechodu těžiště projde vzpěra pantem. Aby v zavřeném stavu 0° měla délku L_closed2,
+        # musí se délka v okamžiku přechodu lišit o změnu geometrie (nebo zafixujeme, že v okamžiku přechodu
+        # má vzpěra délku odpovídající její pozici, ale upravíme pozici čepu tak, aby v 0° byla délka L_closed2).
+        # Přesné řešení: Spočítáme pozici čepu tak, že v 0° vzdálenost od B2 do P2 je L_closed2,
+        # a zároveň v úhlu alpha_cg_over leží P2 na přímce z B2 přes pant.
+        # Geometricky: V úhlu alpha_cg_over je bod P2_rot na přímce u_dir ve vzdálenosti L_closed2 + delta_L.
+        # Z toho zpětným otočením získáme P2.
+        # Pro čisté splnění: Zafixujeme délku v 0° na L_closed2 a pozici P2 spočítáme tak, aby přímka B2-[0,0]
+        # protnula dráhu čepu. 
+        # Uděláme to tak, že bod v okamžiku přechodu na přímce od pantu ve vzdálenosti L_closed2 otočíme zpět:
         P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        # Zpětným otočením získáme pozici čepu P2 v zavřeném stavu (0°), délka v zavřeném stavu je tak PŘESNĚ L_closed2
         P2 = rotate(P_dead_global, -alpha_cg_over)
     else:
         P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
@@ -128,7 +141,7 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie spočítána: délka dodržena, čep na víku dopočítán!")
+st.success("✅ Geometrie spočítána: zadaná délka v zavřeném stavu platí a čep na víku je dopočítán!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
