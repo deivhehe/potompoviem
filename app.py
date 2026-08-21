@@ -4,27 +4,26 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Kontrola mrtvého bodu a pevných délek")
+st.title("Vzpěrovač - Pevné délky a vizualizace těžiště")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
     "m": 30.0,
     "L_lid": 1000.0,
-    "H_lid": 150.0,
+    "H_lid": 800.0,
     "C_x": 500.0,
-    "C_y": 75.0,
+    "C_y": 400.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    "B_x1": 650.0,
-    "B_y1": -120.0,
+    "B_x1": 520.0,
+    "B_y1": -126.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
     "B_x2": 175.0,
     "B_y2": -301.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
-    "F2_user": 150.0,
-    "target_dead_angle": 45.0
+    "F2_user": 200.0
 }
 
 for key, value in DEFAULT_VALUES.items():
@@ -46,8 +45,6 @@ C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", step=10.0, key=
 C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", step=10.0, key="C_y")
 C_0 = np.array([C_x, C_y]) 
 max_angle = st.slider("Max. úhel otevření (°)", 45, 110, key="max_angle")
-
-target_dead_angle = st.sidebar.slider("Cílený mrtvý bod zadní vzpěry (°)", 20.0, 70.0, key="target_dead_angle")
 
 pocet_vzper_radio = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=0 if st.session_state["pocet_vzper"]==2 else 1, key="pocet_vzper_radio")
 st.session_state["pocet_vzper"] = pocet_vzper_radio
@@ -85,8 +82,8 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-# Hlavní vzpěra - drží zadanou zasunutou délku při 0°
-def get_lid_mount_main(B, L_closed, stroke, max_angle, H):
+# Výpočet čepu na víku tak, aby v zavřeném stavu (0°) byla délka PŘESNĚ L_closed
+def get_lid_mount_exact(B, L_closed, stroke, max_angle, H, is_rear=False):
     L_open = L_closed + stroke
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
@@ -102,25 +99,14 @@ def get_lid_mount_main(B, L_closed, stroke, max_angle, H):
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     candidates = [np.array([x3, y3]), np.array([x4, y4])]
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
-    return max(valid, key=lambda p: p[0]) if valid else candidates[0]
+    if valid:
+        return min(valid, key=lambda p: p[0]) if is_rear else max(valid, key=lambda p: p[0])
+    return candidates[0]
 
-P0_1 = get_lid_mount_main(B1, L_closed1, stroke1, max_angle, H)
-
-# Zadní vzpěra - drží zadanou délku L_closed2 v zavřeném stavu A ZÁROVEŇ má mrtvý bod v target_dead_angle
-def get_lid_mount_rear(B, L_closed, target_ang, H):
-    # V mrtvém úhlu (target_ang) leží čep na víku na přímce vedené z B přes H do vzdálenosti L_closed
-    v_dir = H - B
-    v_len = np.linalg.norm(v_dir)
-    if v_len > 0:
-        u_dir = v_dir / v_len
-        P_dead_global = H + u_dir * L_closed
-        # Otočíme zpět o target_ang, abychom dostali lokální souřadnici čepu na víku při 0°
-        return rotate(P_dead_global, H, -target_ang)
-    return np.array([100.0, 50.0])
-
+P0_1 = get_lid_mount_exact(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
 P0_2 = np.array([0.0, 0.0])
 if pocet_vzper == 4:
-    P0_2 = get_lid_mount_rear(B2, L_closed2, target_dead_angle, H)
+    P0_2 = get_lid_mount_exact(B2, L_closed2, stroke2, max_angle, H, is_rear=True)
 
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
@@ -144,13 +130,13 @@ L_act2 = np.zeros_like(angles)
 if pocet_vzper == 4:
     d_arms2, L_act2 = get_kinematics(P0_2, B2)
 
-alpha_dead = target_dead_angle
+alpha_dead = 0.0
 if pocet_vzper == 4:
     cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
-target_hand_force_closed = 7.0 # kg
+target_hand_force_closed = 7.0 
 target_moment_closed = target_hand_force_closed * g * (L_lid / 1000.0)
 req_M_front_0 = M_grav[0] - target_moment_closed
 if pocet_vzper == 4:
@@ -168,7 +154,7 @@ M_rear = (F2_user * 2) * d_arms2 if pocet_vzper == 4 else np.zeros_like(angles)
 M_net = M_grav - (M_front_act + M_rear)
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success(f"✅ Model přepočítán – zadní vzpěra má v zavřeném stavu přesně {L_closed2} mm a mrtvý bod je na {alpha_dead:.1f}°!")
+st.success("✅ Model úspěšně přepočítán – délky vzpěr v zavřeném stavu přesně odpovídají zadaným hodnotám!")
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
 col2.metric("Přední čep víko (X,Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
@@ -181,24 +167,31 @@ col5.metric("Mrtvý bod", f"{alpha_dead:.1f}°")
 
 st.divider()
 
-# --- VIZUALIZACE ---
-st.subheader("Vizualizace a dráha víka")
+# --- VIZUALIZACE S TĚŽIŠTĚM ---
+st.subheader("Vizualizace víka, těžiště CG a vzpěr")
 current_angle = st.slider("🔍 Animace víka", 0.0, float(max_angle), 0.0, step=1.0)
 idx = int((current_angle / max_angle) * 99)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
+# 1. Nákres geometrie
 ax1.plot(*H, 'ko', markersize=8, label='Pant [0,0]')
 lid_poly = np.array([[0, 0], [L_lid, 0], [L_lid, H_lid], [0, H_lid]])
 lid_poly_rot = np.array([rotate(pt, H, current_angle) for pt in lid_poly])
 polygon = Polygon(lid_poly_rot, closed=True, fill=True, facecolor='gray', alpha=0.3, edgecolor='black', lw=2)
 ax1.add_patch(polygon)
 
+# Vykreslení těžiště CG na víku
+C_cur = rotate(C_0, H, current_angle)
+ax1.plot(*C_cur, 'y^', markersize=12, markeredgecolor='black', label=f'Těžiště CG [{C_cur[0]:.0f}, {C_cur[1]:.0f}]')
+
+# Hlavní vzpěra
 P_cur1 = rotate(P0_1, H, current_angle)
 ax1.plot(*B1, 'bs', markersize=6)
 ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label=f'Hlavní ({L_act1[idx]:.0f} mm)')
 ax1.plot(*P_cur1, 'bo', markersize=6)
 
+# Asistenční vzpěra
 if pocet_vzper == 4:
     P_cur2 = rotate(P0_2, H, current_angle)
     ax1.plot(*B2, 'rs', markersize=6)
@@ -212,14 +205,14 @@ ax1.grid(True, linestyle=':')
 max_r = max(L_lid, H_lid, abs(B_x1), abs(B_y1)) * 1.1
 ax1.set_xlim(-max_r*0.2, max_r)
 ax1.set_ylim(-max_r*0.2, max_r*1.1)
-
 ax1.invert_xaxis() 
 
+# 2. Graf síly do ruky
 ax2.plot(angles, F_user_kg, 'b-', lw=2)
 ax2.axhline(0, color='black', lw=1)
 ax2.plot(current_angle, F_user_kg[idx], 'ro', markersize=10, label=f"Nyní: {F_user_kg[idx]:.1f} kg")
-ax2.fill_between(angles, 0, F_user_kg, where=(F_user_kg >= 0), facecolor='red', alpha=0.2, label="Nutno zvedat (kladná síla)")
-ax2.fill_between(angles, 0, F_user_kg, where=(F_user_kg < 0), facecolor='green', alpha=0.2, label="Drží samo / brzdit (záporná)")
+ax2.fill_between(angles, 0, F_user_kg, where=(F_user_kg >= 0), facecolor='red', alpha=0.2, label="Nutno zvedat")
+ax2.fill_between(angles, 0, F_user_kg, where=(F_user_kg < 0), facecolor='green', alpha=0.2, label="Drží / brzdit")
 
 if pocet_vzper == 4 and alpha_dead > 0:
     ax2.axvline(alpha_dead, color='orange', linestyle='--', lw=2, label=f'Mrtvý bod ({alpha_dead:.1f}°)')
