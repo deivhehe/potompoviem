@@ -15,23 +15,22 @@ DEFAULT_VALUES = {
     "C_y": 75.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    "B_x1": 400.0,
+    "B_x1": 350.0,
     "B_y1": -250.0,
     "L_ext1": 600.0,
-    "stroke1": 250.0,
+    "stroke1": 200.0,
     "B_x2": 100.0,
     "B_y2": -120.0,
     "L_ext2": 350.0,
-    "stroke2": 150.0,
+    "stroke2": 100.0,
     "F2_user": 150.0
 }
 
-# Inicializace session state, pokud ještě neexistuje
+# Inicializace session state
 for key, value in DEFAULT_VALUES.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
-# Tlačítko pro reset v postranním panelu
 if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
     for key, value in DEFAULT_VALUES.items():
         st.session_state[key] = value
@@ -61,6 +60,10 @@ B1 = np.array([B_x1, B_y1])
 L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", step=10.0, key="L_ext1")
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
 
+# Kontrola fyzikální reálnosti hlavní vzpěry
+if stroke1 >= L_ext1:
+    st.sidebar.error("❌ Zdvih hlavní vzpěry nemůže být větší nebo roven její celkové délce!")
+
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
     st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
@@ -69,6 +72,8 @@ if pocet_vzper == 4:
     B2 = np.array([B_x2, B_y2])
     L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", step=10.0, key="L_ext2")
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
+    if stroke2 >= L_ext2:
+        st.sidebar.error("❌ Zdvih zadní vzpěry nemůže být větší nebo roven její celkové délce!")
     F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", step=50.0, key="F2_user")
 else:
     F2_user = 0
@@ -86,6 +91,7 @@ def rotate(pt, origin, angle_deg):
     ])
 
 def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
+    if stroke >= L_ext: return None
     L_closed = L_ext - stroke + 5.0
     L_open = L_ext
     
@@ -106,14 +112,12 @@ def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
     valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
-    if not len(valid_points): 
-        return None
-    elif len(valid_points) == 1:
-        return valid_points[0]
-    else:
-        return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+    if not len(valid_points): return None
+    elif len(valid_points) == 1: return valid_points[0]
+    else: return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
 
 def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
+    if stroke >= L_ext: return None
     L_closed = L_ext
     L_open = L_ext - stroke + 5.0
     
@@ -134,12 +138,9 @@ def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
     valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
-    if not len(valid_points): 
-        return None
-    elif len(valid_points) == 1:
-        return valid_points[0]
-    else:
-        return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
+    if not len(valid_points): return None
+    elif len(valid_points) == 1: return valid_points[0]
+    else: return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
 
 # Výpočet čepů
 P0_1 = find_lid_mount_main(B1, L_ext1, stroke1, max_angle, H)
@@ -148,9 +149,9 @@ if pocet_vzper == 4:
     P0_2 = find_lid_mount_rear(B2, L_ext2, stroke2, max_angle, H)
 
 if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry.")
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Zkontrolujte, zda zdvih není větší než celková délka, nebo upravte pozici čepu na vaně.")
 elif pocet_vzper == 4 and P0_2 is None:
-    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Změňte pozici zadního čepu na vaně nebo rozměry vzpěry.")
+    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Zkontrolujte rozměry zadní vzpěry a pozici jejího čepu.")
 else:
     angles = np.linspace(0, max_angle, 100)
     M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
