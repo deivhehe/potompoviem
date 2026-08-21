@@ -25,7 +25,7 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.25, reject_radius=2.0):
+def _pick_physical_root_behind_cg(eqs, guesses, L_lid_mm, H_lid_mm, min_x, margin=0.25, reject_radius=2.0):
     x_lo, x_hi = -margin * L_lid_mm, (1 + margin) * L_lid_mm
     y_lo, y_hi = -margin * H_lid_mm, (1 + margin) * H_lid_mm
 
@@ -37,6 +37,10 @@ def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.25, reject_ra
             continue
         if np.hypot(*sol) < reject_radius:
             continue
+        # Vynucení, aby čep byl za zadanou hranicí (např. za těžištěm)
+        if sol[0] < min_x:
+            continue
+            
         key = (round(sol[0], 1), round(sol[1], 1))
         if any(key == c[2] for c in candidates):
             continue
@@ -55,7 +59,7 @@ def _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm, margin=0.25, reject_ra
     return best[1], best[0], False
 
 
-def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, min_x):
     def eqs(v):
         lx, ly = v
         e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
@@ -63,15 +67,15 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return [e1, e2]
 
+    # Odhady cílené výhradně do oblasti za těžištěm
     guesses = [
-        (Xb_mm + L0_mm * 0.5, Yb_mm + L0_mm * 0.5),
-        (Xb_mm + L0_mm * 0.8, Yb_mm + L0_mm * 0.2),
-        (Xb_mm - L0_mm * 0.2, Yb_mm + L0_mm * 0.8),
-        (L0_mm, 50.0), (50.0, L0_mm), (Xb_mm, Yb_mm + L0_mm),
-        (0.3 * L_lid_mm, 0.3 * H_lid_mm), (0.6 * L_lid_mm, 0.5 * H_lid_mm),
-        (0.5 * L_lid_mm, 0.8 * H_lid_mm)
+        (min_x + 50.0, H_lid_mm * 0.3),
+        (min_x + 100.0, H_lid_mm * 0.5),
+        (min_x + 150.0, H_lid_mm * 0.7),
+        (L_lid_mm * 0.75, H_lid_mm * 0.4),
+        (L_lid_mm * 0.9, H_lid_mm * 0.2)
     ]
-    return _pick_physical_root(eqs, guesses, L_lid_mm, H_lid_mm)
+    return _pick_physical_root_behind_cg(eqs, guesses, L_lid_mm, H_lid_mm, min_x)
 
 
 def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
@@ -143,6 +147,9 @@ Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
+# Minimální X pozice čepu na víku (zda musí být za těžištěm)
+min_x_pin = st.sidebar.number_input("Minimální X čepu na víku (za těžištěm)", 0.0, lid_length, 570.0, 10.0)
+
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
@@ -177,10 +184,10 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, min_x_pin)
 
 if pin1 is None:
-    st.error("⚠️ Pro zadané umístění vany a délku vzpěry neexistuje platné geometrické řešení.")
+    st.error("⚠️ Pro zadanou pozici čepu za touto X souřadnicí nelze s touto délkou vzpěry najít řešení. Zkuste upravit délku L0_1 nebo posunout limit X.")
     st.stop()
 
 lx1, ly1 = pin1
@@ -221,7 +228,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (Čep striktně za těžištěm)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
