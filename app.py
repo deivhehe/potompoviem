@@ -62,25 +62,28 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
+# 1. Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
 angles_fine = np.linspace(0, 90, 1000)
 cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# Hlavní čep se počítá klasicky ze zadané délky a zdvihu
+# 2. Hlavní čep se počítá klasicky ze zadané délky a zdvihu
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # SYNCHRONIZACE S TĚŽIŠTĚM A ZADANOU DÉLKOU:
-    # V okamžiku, kdy je těžiště nad pantem (alpha_cg_over), osa pomocné vzpěry prochází pantem [0,0] 
-    # a její vzdálenost od vany (B2) je přesně zadaná zavřená délka L_closed2.
+    # GEOMETRICKÝ VÝPOČET ČEPU POMOCNÉ VZPĚRY NA VÍKU:
+    # Chceme, aby v úhlu alpha_cg_over byla délka vzpěry přesně L_closed2 
+    # a zároveň její osa procházela pantem [0,0]. 
+    # Vektor směru z vany B2 přes pant [0,0] ven do prostoru víka:
     v_dir = np.array([0.0, 0.0]) - B2
     v_len = np.linalg.norm(v_dir)
     if v_len > 0:
         u_dir = v_dir / v_len
+        # Bod v globálním prostoru v okamžiku, kdy je vzpěra natažená na L_closed2 skrz pant
         P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        # Zpětným otočením o úhel přechodu těžiště získáme pozici čepu P2 v zavřeném stavu (0°)
+        # Zpětným otočením o úhel přechodu těžiště získáme pozici čepu P2 v zavřeném stavu (0°).
+        # Tím je zaručeno, že v 0° má vzpěra PŘESNĚ délku L_closed2 a v okamžiku CG projde pantem!
         P2 = rotate(P_dead_global, -alpha_cg_over)
     else:
         P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
@@ -129,7 +132,7 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie synchronizována s těžištěm i zadanou délkou!")
+st.success("✅ Geometrie synchronizována s délkou i přechodem těžiště!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
