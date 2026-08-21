@@ -115,7 +115,7 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar
+# UI - Sidebar (Upravené výchozí hodnoty pro rozumnou sílu vzpěry)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 600.0, 10.0)
@@ -134,10 +134,11 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, float(np.clip(lid_length * 0.35, -1000.0, 3000.0)), 5.0)
-Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, float(np.clip(lid_height * 3.0, -1000.0, 1000.0)), 5.0)
-L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 220.0, 5.0)
-S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 150.0, 5.0)
+# Změněno: Vana posunutá dál od pantu a větší zasunutá délka pro lepší pákový poměr
+Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, float(np.clip(lid_length * 0.25, -1000.0, 3000.0)), 5.0)
+Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, float(np.clip(-lid_height * 1.5, -1000.0, 1000.0)), 5.0)
+L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 350.0, 5.0)
+S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 200.0, 5.0)
 
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
@@ -276,7 +277,6 @@ def draw_geometry_mm(ax, theta):
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
     ax.set_ylim(-400, max(lid_height * 1.5, 300))
     
-    # Vynucení čtvercového poměru stran pro samotný bílý plotbox
     ax.set_box_aspect(1)
     ax.invert_xaxis()
     
@@ -311,7 +311,6 @@ def draw_force_profile(ax, theta_marker=None):
     if theta_marker is not None:
         ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=8, zorder=6)
 
-    # Vynucení stejného čtvercového poměru stran i pro pravý graf
     ax.set_box_aspect(1)
 
     ax.tick_params(axis='both', labelsize=8)
