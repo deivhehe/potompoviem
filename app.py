@@ -289,10 +289,10 @@ def draw_geometry(ax, theta):
     ax.set_ylim(-H_lid * 4 - 0.05, lim)
     ax.set_aspect("equal")
     ax.invert_xaxis()
-    ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°")
-    ax.set_xlabel("X (m) — kladně doleva od pantu")
-    ax.set_ylabel("Y (m) — kladně nahoru od pantu")
-    ax.legend(loc="upper left", fontsize=8)
+    ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10)
+    ax.set_xlabel("X (m)", fontsize=9)
+    ax.set_ylabel("Y (m)", fontsize=9)
+    ax.legend(loc="upper left", fontsize=7)
     ax.grid(alpha=0.3)
 
 
@@ -303,26 +303,27 @@ def draw_force_profile(ax, theta_marker=None):
     degs = np.degrees(thetas)
 
     ax.axhline(0, color="black", linewidth=1)
-    ax.fill_between(degs, forces_kg, 0, where=(forces_kg >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit (otevírání)")
-    ax.fill_between(degs, forces_kg, 0, where=(forces_kg < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá / brzdit")
+    ax.fill_between(degs, forces_kg, 0, where=(forces_kg >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
+    ax.fill_between(degs, forces_kg, 0, where=(forces_kg < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
     ax.plot(degs, forces_kg, color="black", linewidth=1.5)
 
     if theta_dead is not None:
         ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod")
 
     if theta_marker is not None:
-        ax.plot(np.degrees(theta_marker), F_hand(theta_marker) / G, "o", color="black", markersize=9, zorder=6)
+        ax.plot(np.degrees(theta_marker), F_hand(theta_marker) / G, "o", color="black", markersize=8, zorder=6)
 
-    ax.set_xlabel("Úhel otevření (°)")
-    ax.set_ylabel("Síla do ruky (kgf)")
-    ax.set_title("Profil síly do ruky vs. úhel otevření")
-    ax.legend(loc="best", fontsize=8)
+    ax.set_xlabel("Úhel otevření (°)", fontsize=9)
+    ax.set_ylabel("Síla do ruky (kgf)", fontsize=9)
+    ax.set_title("Profil síly do ruky", fontsize=10)
+    ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
 
 col_geo, col_force = st.columns(2)
-fig1, ax1 = plt.subplots(figsize=(5.5, 5.5))
-fig2, ax2 = plt.subplots(figsize=(5.5, 5.5))
+# Zmenšená velikost grafů z (5.5, 5.5) na (4.5, 4.0) pro lepší přehlednost
+fig1, ax1 = plt.subplots(figsize=(4.5, 4.0))
+fig2, ax2 = plt.subplots(figsize=(4.5, 4.0))
 
 theta_disp = np.radians(theta_disp_deg)
 
