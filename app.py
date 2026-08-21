@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Opravený profil síly")
+st.title("Vzpěrovač - Kompletní metriky a profil síly")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
@@ -23,7 +23,7 @@ DEFAULT_VALUES = {
     "B_y2": -301.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
-    "F2_user": 200.0,
+    "F2_user": 150.0,
     "target_dead_angle": 45.0
 }
 
@@ -36,7 +36,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKé ROZHRANÍ ---
+# --- UŽIVATELSKÉ ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -145,9 +145,6 @@ if pocet_vzper == 4:
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
-# Výpočet potřebné síly přední vzpěry tak, aby síla do ruky byla reálná a kladná v 0°
-# Moment od vzpěr musí být menší než gravitační moment (aby víko samo nepadalo, ale museli jsme ho zvedat)
-# M_net = M_grav - (M_front + M_rear) -> Síla do ruky > 0 v zavřeném stavu
 target_hand_force_closed = 7.0 # kg
 target_moment_closed = target_hand_force_closed * g * (L_lid / 1000.0)
 req_M_front_0 = M_grav[0] - target_moment_closed
@@ -163,19 +160,19 @@ F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 M_front_act = (F_1_rounded * 2) * d_arms1
 M_rear = (F2_user * 2) * d_arms2 if pocet_vzper == 4 else np.zeros_like(angles)
 
-# Celkový moment: Gravitace táhne dolů (+), vzpěry tlačí nahoru (-)
 M_net = M_grav - (M_front_act + M_rear)
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success("✅ Model přepočítán se správným znaménkem síly!")
-col1, col2, col3, col4 = st.columns(4)
+st.success("✅ Model přepočítán – čepy na víku zobrazeny níže!")
+col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
+col2.metric("Přední čep víko (X,Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
 if pocet_vzper == 4:
-    col2.metric("Zadní vzpěra (1ks)", f"{F2_user:.0f} N")
+    col3.metric("Zadní čep víko (X,Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
 else:
-    col2.metric("Zadní vzpěra", "Není")
-col3.metric("Síla do ruky (Zavřeno)", f"{F_user_kg[0]:.1f} kg")
-col4.metric("Síla do ruky (Otevřeno)", f"{F_user_kg[-1]:.1f} kg")
+    col3.metric("Zadní čep víko", "Není")
+col4.metric("Síla (Zavřeno)", f"{F_user_kg[0]:.1f} kg")
+col5.metric("Síla (Otevřeno)", f"{F_user_kg[-1]:.1f} kg")
 
 st.divider()
 
