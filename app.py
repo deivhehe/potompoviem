@@ -26,48 +26,50 @@ DEFAULT_VALUES = {
     "F2_user": 150.0
 }
 
+# Inicializace session state, pokud ještě neexistuje
+for key, value in DEFAULT_VALUES.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
 # Tlačítko pro reset v postranním panelu
 if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
     for key, value in DEFAULT_VALUES.items():
         st.session_state[key] = value
     st.rerun()
 
-# Inicializace session state, pokud ještě neexistuje
-for key, value in DEFAULT_VALUES.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
 # --- UŽIVATELSKÉ ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
-m = st.sidebar.number_input("Hmotnost víka (kg)", value=st.session_state["m"], step=1.0, key="m")
-L_lid = st.sidebar.number_input("Délka víka (mm)", value=st.session_state["L_lid"], step=10.0, key="L_lid")
-H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", value=st.session_state["H_lid"], step=10.0, key="H_lid")
+m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
+L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
+H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", step=10.0, key="H_lid")
 
-C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", value=st.session_state["C_x"], step=10.0, key="C_x")
-C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", value=st.session_state["C_y"], step=10.0, key="C_y")
+C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", step=10.0, key="C_x")
+C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", step=10.0, key="C_y")
 C_0 = np.array([C_x, C_y]) 
-max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, st.session_state["max_angle"], key="max_angle")
+max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, key="max_angle")
 
-pocet_vzper = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=1 if st.session_state["pocet_vzper"]==4 else 0, key="pocet_vzper")
+pocet_vzper_radio = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=0 if st.session_state["pocet_vzper"]==2 else 1, key="pocet_vzper_radio")
+st.session_state["pocet_vzper"] = pocet_vzper_radio
+pocet_vzper = st.session_state["pocet_vzper"]
 
 # HLAVNÍ PÁR
 st.sidebar.header("2. Hlavní vzpěry (Přední)")
 st.sidebar.info("Referenční bod [0,0] je pant (vpravo). Kladné X znamená vzdálenost doleva do vany.")
-B_x1 = st.sidebar.number_input("Hlavní - čep vana X", value=st.session_state["B_x1"], step=10.0, key="B_x1")
-B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", value=st.session_state["B_y1"], step=10.0, key="B_y1")
+B_x1 = st.sidebar.number_input("Hlavní - čep vana X", step=10.0, key="B_x1")
+B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", step=10.0, key="B_y1")
 B1 = np.array([B_x1, B_y1])
-L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", value=st.session_state["L_ext1"], step=10.0, key="L_ext1")
-stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=st.session_state["stroke1"], step=10.0, key="stroke1")
+L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", step=10.0, key="L_ext1")
+stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
     st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
-    B_x2 = st.sidebar.number_input("Zadní - čep vana X", value=st.session_state["B_x2"], step=10.0, key="B_x2")
-    B_y2 = st.sidebar.number_input("Zadní - čep vana Y", value=st.session_state["B_y2"], step=10.0, key="B_y2")
+    B_x2 = st.sidebar.number_input("Zadní - čep vana X", step=10.0, key="B_x2")
+    B_y2 = st.sidebar.number_input("Zadní - čep vana Y", step=10.0, key="B_y2")
     B2 = np.array([B_x2, B_y2])
-    L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", value=st.session_state["L_ext2"], step=10.0, key="L_ext2")
-    stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", value=st.session_state["stroke2"], step=10.0, key="stroke2")
-    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", value=st.session_state["F2_user"], step=50.0, key="F2_user")
+    L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", step=10.0, key="L_ext2")
+    stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
+    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", step=50.0, key="F2_user")
 else:
     F2_user = 0
     B2 = np.array([0,0])
