@@ -1,7 +1,6 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from scipy.optimize import fsolve, brentq
 import time
 
