@@ -55,9 +55,45 @@ def signed_moment_arm(Xb, Yb, lx, ly, theta):
     return (Xb * Yp - Yb * Xp) / L
 
 
-def solve_main_pin(Xb, Yb, L0, S, theta_max):
+def _pick_physical_root(eqs, guesses, L_lid, H_lid, margin=0.15, reject_radius=0.02):
+    """Ze všech konvergovaných kořenů vybere ten, který leží v rozumné
+    fyzické obálce víka (blízko obdélníku 0..L_lid x 0..H_lid). Pokud
+    žádný takový není, vrátí nejlepší dostupný a označí jej jako
+    fyzicky nevěrohodný (in_envelope=False)."""
+    x_lo, x_hi = -margin * L_lid, (1 + margin) * L_lid
+    y_lo, y_hi = -margin * H_lid, (1 + margin) * H_lid
+
+    candidates = []
+    for g0 in guesses:
+        sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
+        res = np.linalg.norm(info["fvec"])
+        if res > 1e-6:
+            continue
+        if np.hypot(*sol) < reject_radius:
+            continue  # degenerované řešení v ose pantu
+        # dedup podle zaokrouhlení na mm
+        key = (round(sol[0], 3), round(sol[1], 3))
+        if any(key == c[2] for c in candidates):
+            continue
+        in_env = (x_lo <= sol[0] <= x_hi) and (y_lo <= sol[1] <= y_hi)
+        candidates.append((res, sol, key, in_env))
+
+    if not candidates:
+        return None, np.inf, False
+
+    in_env_candidates = [c for c in candidates if c[3]]
+    if in_env_candidates:
+        best = min(in_env_candidates, key=lambda c: c[0])
+        return best[1], best[0], True
+
+    best = min(candidates, key=lambda c: c[0])
+    return best[1], best[0], False
+
+
+def solve_main_pin(Xb, Yb, L0, S, theta_max, L_lid, H_lid):
     """Najde pozici čepu na víku (Lx,Ly) pro hlavní vzpěru tak, aby
-    délka @0° = L0 a délka @theta_max = L0+S."""
+    délka @0° = L0 a délka @theta_max = L0+S. Preferuje řešení ležící
+    fyzicky na víku."""
 
     def eqs(v):
         lx, ly = v
@@ -72,50 +108,58 @@ def solve_main_pin(Xb, Yb, L0, S, theta_max):
         (L0, 0.05),
         (0.05, L0),
         (Xb, Yb + L0),
+        (0.3 * L_lid, 0.3 * H_lid),
+        (0.6 * L_lid, 0.3 * H_lid),
+        (0.7 * L_lid, 0.6 * H_lid),
+        (0.2 * L_lid, 0.7 * H_lid),
     ]
-    best, best_res = None, np.inf
-    for g0 in guesses:
-        sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
-        res = np.linalg.norm(info["fvec"])
-        if res < best_res:
-            best_res, best = res, sol
-    return best, best_res
+    return _pick_physical_root(eqs, guesses, L_lid, H_lid)
 
 
-def solve_aux_pin(Xb2, Yb2, L02, theta_dead):
+def solve_aux_pin(Xb2, Yb2, L02, theta_dead, L_lid, H_lid):
     """Najde pozici čepu na víku pro pomocnou vzpěru: délka @0°=L02 a
-    osa vzpěry v theta_dead prochází přesně pantem [0,0]."""
+    osa vzpěry v theta_dead prochází přesně pantem [0,0].
 
-    def eqs(v):
-        lx, ly = v
-        e1 = (lx - Xb2) ** 2 + (ly - Yb2) ** 2 - L02 ** 2
-        Xd, Yd = rotate(lx, ly, theta_dead)
-        e2 = Xd * Yb2 - Yd * Xb2  # kolinearita s pantem [0,0]
-        return [e1, e2]
+    Řešeno analyticky: hledaný čep leží na přímce (lx,ly) = t*u, kde
+    u = rotate(Xb2,Yb2,-theta_dead). Dosazením do podmínky délky @0°
+    vznikne kvadratická rovnice pro t. Řešení existuje pouze pokud
+    L02 >= R*sin(theta_dead), kde R = vzdálenost vana-pant (fyzikální
+    podmínka proveditelnosti geometrie).
 
-    guesses = [
-        (Xb2 - L02 * 0.5, Yb2 - L02 * 0.3),
-        (Xb2 + L02 * 0.3, Yb2 - L02 * 0.5),
-        (Xb2 + L02 * 0.6, Yb2 + L02 * 0.2),
-        (-L02, 0.05),
-        (0.05, -L02),
-        (L02, 0.05),
-        (Xb2, Yb2 - L02),
-        (Xb2, Yb2 + L02),
-    ]
-    best, best_res = None, np.inf
-    for g0 in guesses:
-        sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
-        res = np.linalg.norm(info["fvec"])
-        # zamítnout degenerované řešení - čep téměř v ose pantu (fyzikálně nesmyslné)
-        if np.hypot(*sol) < 0.02:
-            continue
-        if res < best_res:
-            best_res, best = res, sol
-    if best is None:
-        # fallback - i degenerované, ale s upozorněním přes vysoký residual
-        best, best_res = guesses[0], np.inf
-    return best, best_res
+    Vrací: (pozice [Lx,Ly] nebo None, residuum, je_na_víku (bool),
+    minimální potřebná zasunutá délka L02 pro proveditelnost).
+    """
+    R2 = Xb2 ** 2 + Yb2 ** 2
+    R = np.sqrt(R2)
+    if R < 1e-9:
+        return None, np.inf, False, None  # vana v ose pantu - nesmyslné
+
+    sin_d, cos_d = np.sin(theta_dead), np.cos(theta_dead)
+    min_L02 = R * abs(sin_d)
+    disc = (L02 ** 2) / R2 - sin_d ** 2
+    if disc < 0:
+        return None, np.inf, False, min_L02  # geometricky neřešitelné
+
+    sq = np.sqrt(disc)
+    ux, uy = rotate(Xb2, Yb2, -theta_dead)
+
+    x_lo, x_hi = -0.15 * L_lid, 1.15 * L_lid
+    y_lo, y_hi = -0.15 * H_lid, 1.15 * H_lid
+
+    sols = []
+    for t in (cos_d + sq, cos_d - sq):
+        lx, ly = t * ux, t * uy
+        if np.hypot(lx, ly) < 0.02:
+            continue  # degenerované řešení v ose pantu
+        sols.append((lx, ly))
+
+    if not sols:
+        return None, np.inf, False, min_L02
+
+    in_env = [s for s in sols if x_lo <= s[0] <= x_hi and y_lo <= s[1] <= y_hi]
+    if in_env:
+        return np.array(in_env[0]), 0.0, True, min_L02
+    return np.array(sols[0]), 0.0, False, min_L02
 
 
 def find_dead_point(cg_x, cg_y, theta_max):
@@ -193,7 +237,7 @@ n_main = 2
 Xb1_m, Yb1_m = Xb1 * mm, Yb1 * mm
 L0_1_m, S1_m = L0_1 * mm, S1 * mm
 
-pin1, res1 = solve_main_pin(Xb1_m, Yb1_m, L0_1_m, S1_m, theta_max)
+pin1, res1, in_env1 = solve_main_pin(Xb1_m, Yb1_m, L0_1_m, S1_m, theta_max, L_lid, H_lid)
 lx1, ly1 = pin1
 
 theta_dead = find_dead_point(cg_x, cg_y, theta_max)
@@ -210,9 +254,21 @@ if use_aux:
             "nebo max. úhel otevření."
         )
     else:
-        pin2, res2 = solve_aux_pin(Xb2_m, Yb2_m, L0_2_m, theta_dead)
-        lx2, ly2 = pin2
-        n_aux = 2
+        pin2, res2, in_env2, min_L02 = solve_aux_pin(Xb2_m, Yb2_m, L0_2_m, theta_dead, L_lid, H_lid)
+        if pin2 is None:
+            R_vana = np.hypot(Xb2_m, Yb2_m)
+            st.error(
+                f"❌ Zadaná geometrie pomocné vzpěry nemá řešení: vana je od pantu vzdálená "
+                f"{R_vana/mm:.0f} mm, ale zasunutá délka @0° je jen {L0_2:.0f} mm. "
+                f"Aby úloha měla řešení, musí platit L₀ ≥ {min_L02/mm:.0f} mm "
+                f"(vzdálenost vana–pant × sin(úhel mrtvého bodu)). "
+                f"Buď zvětši zasunutou délku pomocné vzpěry alespoň na ~{min_L02/mm:.0f} mm, "
+                f"nebo posuň vanu pomocné vzpěry blíž k pantu."
+            )
+            res2, in_env2 = np.inf, False
+        else:
+            lx2, ly2 = pin2
+            n_aux = 2
 
 # ----------------------------------------------------------------------
 # Výpočet potřebných sil vzpěr (kvazistatická rovnováha momentů)
@@ -292,10 +348,27 @@ if theta_dead is not None:
 else:
     st.info("🔹 Mrtvý bod nebyl v zadaném rozsahu úhlů nalezen.")
 
-if res1 > 1e-6:
-    st.warning(f"Pozor: rovnice pro hlavní vzpěru mají zbytkovou odchylku {res1:.2e} – zkontrolujte vstupy.")
-if use_aux and pin2 is not None and res2 > 1e-6:
-    st.warning(f"Pozor: rovnice pro pomocnou vzpěru mají zbytkovou odchylku {res2:.2e} – zkontrolujte vstupy.")
+if pin1 is None or res1 > 1e-6:
+    st.warning("Pozor: pro hlavní vzpěru se nepodařilo najít platné řešení – zkontrolujte vstupy (vana X/Y, zasunutá délka, zdvih).")
+elif not in_env1:
+    st.warning(
+        f"⚠️ Čep hlavní vzpěry na víku vychází **mimo těleso víka** "
+        f"(X={lx1/mm:.0f} mm, Y={ly1/mm:.0f} mm, rozměry víka {lid_length:.0f}×{lid_height:.0f} mm). "
+        "To znamená, že zadaná zasunutá délka/zdvih/pozice vany nejsou s reálnou geometrií víka slučitelné. "
+        "Zkus upravit pozici vany (X, Y) nebo zasunutou délku a zdvih hlavní vzpěry."
+    )
+
+if use_aux and pin2 is not None:
+    if res2 > 1e-6:
+        st.warning("Pozor: pro pomocnou vzpěru se nepodařilo najít platné řešení – zkontrolujte vstupy.")
+    elif not in_env2:
+        st.warning(
+            f"⚠️ Čep pomocné vzpěry na víku vychází **mimo těleso víka** "
+            f"(X={lx2/mm:.0f} mm, Y={ly2/mm:.0f} mm, rozměry víka {lid_length:.0f}×{lid_height:.0f} mm). "
+            "Podmínka „osa vzpěry prochází pantem v mrtvém bodě“ tak s aktuální pozicí vany a zasunutou "
+            "délkou nemá fyzicky rozumné řešení na víku. Zkus posunout vanu pomocné vzpěry (X, Y) blíž "
+            "k pantu nebo upravit zasunutou délku @0°."
+        )
 
 st.divider()
 
