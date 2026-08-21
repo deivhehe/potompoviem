@@ -11,7 +11,7 @@ st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 G = 9.81  # m/s^2
 
 # ----------------------------------------------------------------------
-# Pomocné fyzikální funkce
+# Pomocné fyzikální funkce (pracují v milimetrech pro geometrii)
 # ----------------------------------------------------------------------
 def rotate_mm(lx, ly, theta):
     c, s = np.cos(theta), np.sin(theta)
@@ -214,11 +214,17 @@ if use_aux and F_aux is not None:
 else:
     c2.metric("Síla pomocné vzpěry", "—")
 c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
+
+f_max_val = F_hand(theta_max)
 c4.metric(
     "Síla do ruky @max",
-    f"{F_hand(theta_max):.1f} N",
-    "pomáhá zavírat" if F_hand(theta_max) < 0 else "ještě otevírá",
+    f"{f_max_val:.1f} N",
+    "pomáhá zavírat" if f_max_val < 0 else "tlačí ven",
 )
+
+# Upozornění, pokud by v max úhlu síla byla moc velká (přes 200 N do zavírání)
+if f_max_val < -200:
+    st.warning("⚠️ **Pozor:** V maximálním otevření je síla pro zavírání velmi vysoká (víko chce silně vystřelit ven). Zkuste posunout vanu hlavní vzpěry dál nebo upravit geometrii, aby byla síla `@max` blíž k nule (např. -30 až -100 N).")
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
