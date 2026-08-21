@@ -2,6 +2,8 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
+from scipy.optimize import fsolve, brentq
+import time
 
 st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 
@@ -56,7 +58,6 @@ def _pick_physical_root(eqs, guesses, L_lid, H_lid, margin=0.15, reject_radius=0
 
 
 def solve_main_pin(Xb, Yb, L0, S, theta_max, L_lid, H_lid):
-    from scipy.optimize import fsolve
     def eqs(v):
         lx, ly = v
         e1 = (lx - Xb) ** 2 + (ly - Yb) ** 2 - L0 ** 2
@@ -145,7 +146,6 @@ if use_aux:
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, float(np.clip(lid_height * 2.0, -1000.0, 1000.0)), 5.0)
     L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 150.0, 5.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm) [info]", 10.0, 1500.0, 100.0, 5.0)
-    # Zadávaná katalogová síla 1 ks pomocné vzpěry v Newtonech
     F_aux_catalog = st.sidebar.number_input("Katalogová síla 1 ks pomocné vzpěry (N)", 50.0, 2000.0, 200.0, 10.0)
 
 st.sidebar.header("5) Cílové síly do ruky")
@@ -185,7 +185,7 @@ if use_aux:
             n_aux = 2
 
 # ----------------------------------------------------------------------
-# Výpočet síly hlavní vzpěry (z rovnováhy při 0°)
+# Výpočet síly hlavní vzpěry
 # ----------------------------------------------------------------------
 def Xcg(theta):
     return cg_x * np.cos(theta) - cg_y * np.sin(theta)
@@ -198,8 +198,6 @@ d1_0 = signed_moment_arm(Xb1_m, Yb1_m, lx1, ly1, 0.0)
 
 if use_aux and pin2 is not None:
     d2_0 = signed_moment_arm(Xb2_m, Yb2_m, lx2, ly2, 0.0)
-    # Známe sílu pomocné vzpěry F_aux_catalog, spočítáme sílu hlavní vzpěry z momentu při 0°
-    # n_main * d1_0 * F_main + n_aux * d2_0 * F_aux = -(Tg(0) + target_open_N * L_lid)
     moment_sum_needed = -(Tg(0.0) + target_open_N * L_lid)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
@@ -211,7 +209,6 @@ else:
     F_main = (-(Tg(0.0) + target_open_N * L_lid)) / denom if abs(denom) > 1e-9 else 0.0
 
 def F_hand(theta):
-    """Síla do ruky (N), tangenciálně na konci víka."""
     Ts = n_main * F_main * signed_moment_arm(Xb1_m, Yb1_m, lx1, ly1, theta)
     if use_aux and pin2 is not None and F_aux is not None:
         Ts += n_aux * F_aux * signed_moment_arm(Xb2_m, Yb2_m, lx2, ly2, theta)
@@ -338,7 +335,6 @@ if animate:
         draw_force_profile(ax2, th)
         placeholder1.pyplot(fig1)
         placeholder2.pyplot(fig2)
-        import time
         time.sleep(0.04)
 else:
     draw_geometry(ax1, theta_disp)
