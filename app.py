@@ -25,25 +25,26 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, min_x):
+def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     def objective(v):
         lx, ly = v
+        # Podmínka délky vzpěry v zavřeném stavu (0°) a maximálním úhlu
         l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
         Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
         l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        
-        penalty = (min_x - lx) ** 2 * 50 if lx < min_x else 0.0
-        return l1**2 + l2**2 + penalty
+        return l1**2 + l2**2
 
+    # Hledáme kdekoli uvnitř obdélníku víka [0, L_lid_mm] x [0, H_lid_mm]
     res = minimize(
         objective, 
-        [max(min_x, L_lid_mm * 0.7), H_lid_mm * 0.5], 
+        [L_lid_mm * 0.4, H_lid_mm * 0.4], 
         bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], 
         method='L-BFGS-B'
     )
     
-    if res.success and res.fun < 50.0:
+    if res.success and res.fun < 100.0:
         return res.x, res.fun, True
+        
     return None, np.inf, False
 
 
@@ -116,8 +117,6 @@ Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
-min_x_pin = st.sidebar.number_input("Minimální X čepu na víku (za těžištěm)", 0.0, lid_length, 570.0, 10.0)
-
 if use_aux:
     st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
@@ -152,10 +151,10 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, min_x_pin)
+pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
 
 if pin1 is None:
-    st.error("⚠️ Pro zadanou pozici čepu nelze umístit vzpěru tak, aby čep ležel uvnitř obrysu víka. Upravte Vana X/Y nebo Zasunutou délku.")
+    st.error("⚠️ Pro zadanou vanu a délku vzpěry nelze najít čep uvnitř víka. Upravte Vana X/Y nebo Zasunutou délku.")
     st.stop()
 
 lx1, ly1 = pin1
