@@ -243,7 +243,7 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie (s osou Y do -250 mm)
+# Vykreslení geometrie (s osou Y do -400 mm)
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
@@ -274,14 +274,14 @@ def draw_geometry_mm(ax, theta):
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
-    # Nastaveno Y od -250 mm nahoru
-    ax.set_ylim(-250, max(lid_height * 1.5, 300))
+    # Protaženo dolů do -400 mm
+    ax.set_ylim(-400, max(lid_height * 1.5, 300))
     
     ax.set_aspect("equal")
     ax.invert_xaxis()
     
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(100)) # hustší mřížka pro Y
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
     
     ax.tick_params(axis='both', labelsize=8)
     for label in ax.get_xticklabels():
@@ -332,16 +332,16 @@ if animate:
         th = np.radians(deg)
         draw_geometry_mm(ax1, th)
         draw_force_profile(ax2, th)
-        # Zarovnání okrajů pro absolutně stejnou velikost
-        fig1.tight_layout()
-        fig2.tight_layout()
+        fig1.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
+        fig2.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
         placeholder1.pyplot(fig1)
         placeholder2.pyplot(fig2)
         time.sleep(0.04)
 else:
     draw_geometry_mm(ax1, theta_disp)
     draw_force_profile(ax2, theta_disp)
-    fig1.tight_layout()
-    fig2.tight_layout()
+    fig1.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
+    fig2.subplots_adjust(top=0.9, bottom=0.15, left=0.15, right=0.95)
     col_geo.pyplot(fig1)
     col_force.pyplot(fig2)
+    
