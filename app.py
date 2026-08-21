@@ -2,8 +2,7 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from matplotlib.patches import Polygon
-from scipy.optimize import fsolve, brentq
+from scipy.optimize import fsolve, brentq, minimize
 import time
 
 st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
@@ -140,8 +139,15 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, 750.0, 5.0)
-Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -50.0, 5.0)
+auto_optimize_van = st.sidebar.checkbox("🤖 Automaticky najít pozici vany hlavní vzpěry", value=True)
+
+if auto_optimize_van:
+    st.sidebar.info("Pozice vany X/Y bude vypočtena automaticky pro optimální sílu @max.")
+    Xb1_init, Yb1_init = 500.0, -100.0
+else:
+    Xb1_init = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, 585.0, 5.0)
+    Yb1_init = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
+
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
@@ -161,28 +167,10 @@ theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, the
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Výpočty
+# Výpočty & Optimalizace vany
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main = 2
-
-pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
-
-if pin1 is None:
-    st.error("⚠️ Pro zadané umístění vany a délku vzpěry neexistuje platné geometrické řešení.")
-    st.stop()
-
-lx1, ly1 = pin1
-
-theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
-
-pin2 = None
-if use_aux:
-    if theta_dead is not None:
-        pin2, res2, in_env2, min_L02 = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
-        if pin2 is not None:
-            lx2, ly2 = pin2
-            n_aux = 2
 
 def Xcg_m(theta):
     cg_xm = cg_x_mm * 0.001
@@ -192,12 +180,71 @@ def Xcg_m(theta):
 def Tg(theta):
     return -lid_mass * G * Xcg_m(theta)
 
-# Účinná páka madla (kolmá vzdálenost od osy rotace/pantu v daném úhlu)
 def handle_moment_arm_m(theta):
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
-    # Vektor síly člověka předpokládáme kolmo na rameno madla od pantu
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
+
+# Optimalizační smyčka pro nalezení ideální vany Xb1, Yb1
+if auto_optimize_van:
+    def objective(vars_v):
+        xb, yb = vars_v
+        pin, _, valid = solve_main_pin_mm(xb, yb, L0_1, S1, theta_max, lid_length, lid_height)
+        if not valid or pin is None:
+            return 1e6
+        lx, ly = pin
+        d1_0 = signed_moment_arm_mm(xb, yb, lx, ly, 0.0)
+        if abs(d1_0) < 1e-6:
+            return 1e6
+        
+        h_arm_0 = handle_moment_arm_m(0.0)
+        if use_aux:
+            # odhad pro pomocnou
+            pass
+        
+        # Výpočet síly hlavní vzpěry pro start
+        moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
+        f_m = moment_sum_needed / (n_main * d1_0)
+        if f_m < 0 or f_m > 3000: # limit síly vzpěry
+            return 1e6
+            
+        # Síla @max
+        h_arm_max = handle_moment_arm_m(theta_max)
+        ts_m = n_main * f_m * signed_moment_arm_mm(xb, yb, lx, ly, theta_max)
+        ts_a = 0.0
+        if use_aux:
+            # zjednodušení pro optimalizaci
+            pass
+        f_max = -(Tg(theta_max) + ts_m + ts_a) / h_arm_max
+        
+        # Cíl: síla @max co nejblíže -100 N (případně penalty)
+        return abs(f_max - (-100.0))
+
+    # Spuštění optimalizace v malém rozsahu kolem rámu
+    res_opt = minimize(objective, [Xb1_init, Yb1_init], method='Nelder-Mead', options={'maxiter': 300})
+    if res_opt.success:
+        Xb1, Yb1 = res_opt.x
+    else:
+        Xb1, Yb1 = Xb1_init, Yb1_init
+else:
+    Xb1, Yb1 = Xb1_init, Yb1_init
+
+pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+
+if pin1 is None:
+    st.error("⚠️ Pro zadané parametry nelze najít platnou geometrii vany. Upravte výchozí hodnoty.")
+    st.stop()
+
+lx1, ly1 = pin1
+theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
+
+pin2 = None
+if use_aux:
+    if theta_dead is not None:
+        pin2, res2, in_env2, min_L02 = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
+        if pin2 is not None:
+            lx2, ly2 = pin2
+            n_aux = 2
 
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 h_arm_0 = handle_moment_arm_m(0.0)
@@ -226,14 +273,11 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (s pozicí madla X/Y)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (s automatickým hledáním vany)")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
-if use_aux and F_aux is not None:
-    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
-else:
-    c2.metric("Síla pomocné vzpěry", "—")
+c1.metric("Vypočtená vana X / Y", f"{Xb1:.1f} / {Yb1:.1f} mm")
+c2.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
 c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
 
 f_max_val = F_hand(theta_max)
@@ -269,7 +313,6 @@ def draw_geometry_mm(ax, theta):
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
-    # Vykreslení pozice madla X/Y
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     ax.plot(hx, hy, "go", markersize=9, zorder=7)
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
@@ -312,8 +355,8 @@ def draw_force_profile(ax, theta_marker=None):
     ax.set_box_aspect(1)
     ax.tick_params(axis='both', labelsize=8)
     ax.set_xlabel("Úhel otevření (°)", fontsize=9)
-    ax.set_ylabel("Síla do ruky (N)", fontsize=9)
-    ax.set_title(f"Profil síly na madlu [X:{handle_x_mm}, Y:{handle_y_mm}]", fontsize=10, fontweight='bold')
+    ax.set_ylabel("Síla na madlu (N)", fontsize=9)
+    ax.set_title("Profil síly na madlu", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
