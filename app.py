@@ -19,11 +19,11 @@ DEFAULT_VALUES = {
     "B_y1": -126.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
-    "B_x2": 80.0,
-    "B_y2": -50.0,
-    "L_closed2": 250.0,
-    "stroke2": 150.0,
-    "F2_user": 150.0
+    "B_x2": 175.0,
+    "B_y2": -301.0,
+    "L_closed2": 560.0,
+    "stroke2": 120.0,
+    "F2_user": 200.0
 }
 
 for key, value in DEFAULT_VALUES.items():
@@ -58,8 +58,6 @@ B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", step=10.0, key="B_y1")
 B1 = np.array([B_x1, B_y1])
 L_closed1 = st.sidebar.number_input("Hlavní - Zasunutá délka (mm)", step=10.0, key="L_closed1")
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
-
-# Celková vysunutá délka = zasunutá + zdvih
 L_ext1 = L_closed1 + stroke1
 
 # ASISTENČNÍ PÁR
@@ -90,18 +88,18 @@ def rotate(pt, origin, angle_deg):
 
 def find_lid_mount_flexible(B, L_closed_base, stroke, max_angle, H, is_rear=False):
     if not is_rear:
-        # Hlavní: v zavřeném zasunutá (+5mm rezerva), v otevřeném vysunutá
         L_closed = max(L_closed_base + 5.0, 20.0)
         L_open = L_closed_base + stroke
     else:
-        # Zadní: v zavřeném vysunutá, v otevřeném zasunutá (+5mm rezerva)
+        # Zadní: v zavřeném vysunutá, v otevřeném zasunutá
         L_closed = L_closed_base + stroke
         L_open = max(L_closed_base + 5.0, 20.0)
     
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
     
-    if d > (L_closed + L_open) + 10.0 or d < abs(L_closed - L_open) - 10.0 or d == 0:
+    # Velmi tolerantní rozsah pro průsečík kružnic, aby to nevyhazovalo chybu při ladění
+    if d > (L_closed + L_open) + 30.0 or d < abs(L_closed - L_open) - 30.0 or d == 0:
         return None
     
     sum_r = L_closed + L_open
@@ -120,11 +118,14 @@ def find_lid_mount_flexible(B, L_closed_base, stroke, max_angle, H, is_rear=Fals
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
-    valid_points = [p for p in (p3, p4) if p[0] > -50 and p[1] >= -20.0]
+    valid_points = [p for p in (p3, p4) if p[0] > -50 and p[1] >= -50.0]
     if not len(valid_points): return None
     elif len(valid_points) == 1: return valid_points[0]
     else:
-        return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+        if is_rear:
+            return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
+        else:
+            return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
 
 # Výpočet čepů
 P0_1 = find_lid_mount_flexible(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
@@ -133,9 +134,9 @@ if pocet_vzper == 4:
     P0_2 = find_lid_mount_flexible(B2, L_closed2, stroke2, max_angle, H, is_rear=True)
 
 if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru s touto zasunutou délkou (618 mm) neexistuje. Zkuste mírně upravit X/Y pozici čepu na vaně.")
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Upravte pozici čepu na vaně.")
 elif pocet_vzper == 4 and P0_2 is None:
-    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Upravte pozici zadního čepu na vaně.")
+    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. S touto zasunutou délkou (560 mm) a zdvihem (120 mm) posuňte zadní čep na vaně blíž k pantu nebo níže.")
 else:
     angles = np.linspace(0, max_angle, 100)
     M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
