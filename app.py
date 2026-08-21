@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Optimalizace na mrtvý bod 45°")
+st.title("Vzpěrovač - Vyvážený profil síly")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
@@ -15,14 +15,12 @@ DEFAULT_VALUES = {
     "C_y": 75.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    # Hlavní pár
     "B_x1": 650.0,
     "B_y1": -120.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
-    # Asistenční pár (zadní)
-    "B_x2": 100.0,
-    "B_y2": -150.0,
+    "B_x2": 175.0,
+    "B_y2": -301.0,
     "L_closed2": 560.0,
     "stroke2": 120.0,
     "F2_user": 150.0,
@@ -38,7 +36,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKÉ ROZHRANÍ ---
+# --- UŽIVATELSKé ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -71,16 +69,13 @@ if pocet_vzper == 4:
     B2 = np.array([B_x2, B_y2])
     L_closed2 = st.sidebar.number_input("Zadní - Zasunutá délka (mm)", step=10.0, key="L_closed2")
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
-    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N, 1ks)", step=50.0, key="F2_user")
 else:
-    F2_user = 0
     B2 = np.array([0,0])
     L_closed2, stroke2 = 0, 0
 
 g = 9.81
 H = np.array([0.0, 0.0]) # Pant
 
-# --- MATEMATIKA A GEOMETRIE ČEPŮ ---
 def rotate(pt, origin, angle_deg):
     a = np.radians(angle_deg)
     return np.array([
@@ -107,16 +102,12 @@ def get_lid_mount(B, L_closed, stroke, max_angle, H, is_rear=False, target_ang=4
         valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
         return max(valid, key=lambda p: p[0]) if valid else candidates[0]
     else:
-        # Pro zadní vzpěru spočítáme čep na víku tak, aby v úhlu target_dead_angle
-        # osa vzpěry (B2 -> P0_2 v daném úhlu)procházela osou pantu H [0,0].
-        # Vektor z B2 přes H ven na víko v úhlu target_dead_angle:
-        v_dir = H - B2
+        v_dir = H - B
         v_len = np.linalg.norm(v_dir)
         if v_len > 0:
             u_dir = v_dir / v_len
             P_dead_global = H + u_dir * L_closed
-            P0_2_calculated = rotate(P_dead_global, H, -target_ang)
-            return P0_2_calculated
+            return rotate(P_dead_global, H, -target_ang)
         return np.array([100.0, 50.0])
 
 P0_1 = get_lid_mount(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
@@ -141,43 +132,52 @@ def get_kinematics(P0, B):
 
 d_arms1, L_act1 = get_kinematics(P0_1, B1)
 
-M_rear = np.zeros_like(angles)
+d_arms2 = np.zeros_like(angles)
+L_act2 = np.zeros_like(angles)
 if pocet_vzper == 4:
     d_arms2, L_act2 = get_kinematics(P0_2, B2)
-    M_rear = (F2_user * 2) * d_arms2
 
-# Skutečný mrtvý bod ze simulačního vektoru
 alpha_dead = target_dead_angle
 if pocet_vzper == 4:
     cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
-valid_idx = np.abs(d_arms1) > 0.05 
-if np.any(valid_idx):
-    req_M_front = M_grav - M_rear
-    F_1_strut = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx])) / 2.0
-else:
-    F_1_strut = 0
+# Optimalizace sil tak, aby vzpěry byly rozumné a ruka necítila extrémní zátěž
+# Hlavní vzpěra spočítaná primárně na otevřený stav
+valid_open = np.abs(d_arms1[-1]) > 0.01
+F_1_strut = 300.0 # výchozí rozumný odhad
+if valid_open:
+    # Cílíme tak, aby v otevřeném stavu moment vzpěr pokryl gravitaci s malou rezervou na držení
+    req_M_open = M_grav[-1]
+    F_1_total = req_M_open / np.abs(d_arms1[-1])
+    F_1_strut = max(50.0, F_1_total / 2.0)
 
-F_1_rounded = max(50.0, np.ceil(max(0, F_1_strut) / 50.0) * 50)
+F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 
-if F_1_rounded > 500:
-    st.warning(f"⚠️ Vypočítaná síla přední vzpěry ({F_1_rounded:.0f} N) přesahuje katalogový limit 500 N! Zkuste posunout hlavní čep na vaně dál od pantu (větší X).")
+# Síla zadní vzpěry odhadnutá tak, aby pomáhala v zavřeném stavu, ale nepřetlačovala
+F2_computed = 150.0 # rozumná asistenční síla
+if pocet_vzper == 4 and np.abs(d_arms1[0]) > 0.01:
+    # Zbytek do momentu v zavřeném stavu
+    rem_M = M_grav[0] - (F_1_rounded * 2) * d_arms1[0]
+    if np.abs(d_arms2[0]) > 0.01:
+        F2_computed = max(50.0, min(400.0, np.abs(rem_M / (2.0 * d_arms2[0]))))
+F2_rounded = np.ceil(F2_computed / 50.0) * 50
 
+M_rear = (F2_rounded * 2) * d_arms2 if pocet_vzper == 4 else np.zeros_like(angles)
 M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success("✅ Model optimalizován na požadovaný mrtvý bod!")
+st.success("✅ Model přopočítán na bezpečné síly do ruky!")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
-col2.metric("Přední čep víko (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
 if pocet_vzper == 4:
-    col3.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+    col2.metric("Zadní vzpěra (1ks)", f"{F2_rounded:.0f} N")
 else:
-    col3.metric("Zadní čep víko", "Není")
-col4.metric("Mrtvý bod zadní", f"{alpha_dead:.1f}°")
+    col2.metric("Zadní vzpěra", "Není")
+col3.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg")
+col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
 
 st.divider()
 
@@ -218,15 +218,15 @@ ax1.invert_xaxis()
 ax2.plot(angles, -F_user_kg, 'b-', lw=2)
 ax2.axhline(0, color='black', lw=1)
 ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10, label=f"Nyní: {-F_user_kg[idx]:.1f} kg")
-ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2, label="Víko padá / nutno zvedat")
-ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2, label="Víko drží / brzdit ruku")
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2, label="Víko padá")
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2, label="Víko drží / mírně brzdit")
 
 if pocet_vzper == 4 and alpha_dead > 0:
     ax2.axvline(alpha_dead, color='orange', linestyle='--', lw=2, label=f'Mrtvý bod ({alpha_dead:.1f}°)')
 
 ax2.set_xlabel("Úhel otevření (°)")
 ax2.set_ylabel("Síla potřebná na víku (kg)")
-ax2.set_title("Profil síly do ruky (kladná = táhneš nahoru, záporná = brzdíš)")
+ax2.set_title("Profil síly do ruky")
 ax2.legend()
 ax2.grid(True, linestyle=':')
 
