@@ -6,7 +6,7 @@ from matplotlib.patches import Polygon
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
 st.title("Vzpěrovač")
 
-# --- VÝCHOZÍ HODNOTY (RESET) ---
+# --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
     "m": 30.0,
     "L_lid": 1000.0,
@@ -15,18 +15,17 @@ DEFAULT_VALUES = {
     "C_y": 75.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    "B_x1": 350.0,
-    "B_y1": -250.0,
-    "L_ext1": 600.0,
-    "stroke1": 200.0,
-    "B_x2": 100.0,
-    "B_y2": -120.0,
-    "L_ext2": 350.0,
-    "stroke2": 100.0,
+    "B_x1": 520.0,
+    "B_y1": -126.0,
+    "L_closed1": 618.0,
+    "stroke1": 500.0,
+    "B_x2": 80.0,
+    "B_y2": -50.0,
+    "L_closed2": 250.0,
+    "stroke2": 150.0,
     "F2_user": 150.0
 }
 
-# Inicializace session state
 for key, value in DEFAULT_VALUES.items():
     if key not in st.session_state:
         st.session_state[key] = value
@@ -57,12 +56,11 @@ st.sidebar.info("Referenční bod [0,0] je pant (vpravo). Kladné X znamená vzd
 B_x1 = st.sidebar.number_input("Hlavní - čep vana X", step=10.0, key="B_x1")
 B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", step=10.0, key="B_y1")
 B1 = np.array([B_x1, B_y1])
-L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", step=10.0, key="L_ext1")
+L_closed1 = st.sidebar.number_input("Hlavní - Zasunutá délka (mm)", step=10.0, key="L_closed1")
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
 
-# Kontrola fyzikální reálnosti hlavní vzpěry
-if stroke1 >= L_ext1:
-    st.sidebar.error("❌ Zdvih hlavní vzpěry nemůže být větší nebo roven její celkové délce!")
+# Celková vysunutá délka = zasunutá + zdvih
+L_ext1 = L_closed1 + stroke1
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
@@ -70,14 +68,14 @@ if pocet_vzper == 4:
     B_x2 = st.sidebar.number_input("Zadní - čep vana X", step=10.0, key="B_x2")
     B_y2 = st.sidebar.number_input("Zadní - čep vana Y", step=10.0, key="B_y2")
     B2 = np.array([B_x2, B_y2])
-    L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", step=10.0, key="L_ext2")
+    L_closed2 = st.sidebar.number_input("Zadní - Zasunutá délka (mm)", step=10.0, key="L_closed2")
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
-    if stroke2 >= L_ext2:
-        st.sidebar.error("❌ Zdvih zadní vzpěry nemůže být větší nebo roven její celkové délce!")
+    L_ext2 = L_closed2 + stroke2
     F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", step=50.0, key="F2_user")
 else:
     F2_user = 0
     B2 = np.array([0,0])
+    L_ext2, L_closed2, stroke2 = 0, 0, 0
 
 g = 9.81
 H = np.array([0.0, 0.0]) # Pant
@@ -90,68 +88,54 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
-    if stroke >= L_ext: return None
-    L_closed = L_ext - stroke + 5.0
-    L_open = L_ext
+def find_lid_mount_flexible(B, L_closed_base, stroke, max_angle, H, is_rear=False):
+    if not is_rear:
+        # Hlavní: v zavřeném zasunutá (+5mm rezerva), v otevřeném vysunutá
+        L_closed = max(L_closed_base + 5.0, 20.0)
+        L_open = L_closed_base + stroke
+    else:
+        # Zadní: v zavřeném vysunutá, v otevřeném zasunutá (+5mm rezerva)
+        L_closed = L_closed_base + stroke
+        L_open = max(L_closed_base + 5.0, 20.0)
     
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
-    if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
+    
+    if d > (L_closed + L_open) + 10.0 or d < abs(L_closed - L_open) - 10.0 or d == 0:
         return None
-    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
-    val = L_closed**2 - a**2
-    if val < 0: return None
-    h = np.sqrt(val)
-    P2 = B + a * (B_rot - B) / d
     
-    x3 = P2[0] + h * (B_rot[1] - B[1]) / d
-    y3 = P2[1] - h * (B_rot[0] - B[0]) / d
-    x4 = P2[0] - h * (B_rot[1] - B[1]) / d
-    y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-    p3, p4 = np.array([x3, y3]), np.array([x4, y4])
-    
-    valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
-    if not len(valid_points): return None
-    elif len(valid_points) == 1: return valid_points[0]
-    else: return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
+    sum_r = L_closed + L_open
+    if d > sum_r: d = sum_r
+    diff_r = abs(L_closed - L_open)
+    if d < diff_r: d = diff_r + 0.1
 
-def find_lid_mount_rear(B, L_ext, stroke, max_angle, H):
-    if stroke >= L_ext: return None
-    L_closed = L_ext
-    L_open = L_ext - stroke + 5.0
-    
-    B_rot = rotate(B, H, -max_angle)
-    d = np.linalg.norm(B_rot - B)
-    if d > (L_closed + L_open) or d < abs(L_closed - L_open) or d == 0:
-        return None
     a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
     val = L_closed**2 - a**2
-    if val < 0: return None
-    h = np.sqrt(val)
-    P2 = B + a * (B_rot - B) / d
+    h = np.sqrt(max(0, val))
     
+    P2 = B + a * (B_rot - B) / d
     x3 = P2[0] + h * (B_rot[1] - B[1]) / d
     y3 = P2[1] - h * (B_rot[0] - B[0]) / d
     x4 = P2[0] - h * (B_rot[1] - B[1]) / d
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
-    valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
+    valid_points = [p for p in (p3, p4) if p[0] > -50 and p[1] >= -20.0]
     if not len(valid_points): return None
     elif len(valid_points) == 1: return valid_points[0]
-    else: return valid_points[0] if valid_points[0][1] < valid_points[1][1] else valid_points[1]
+    else:
+        return valid_points[0] if valid_points[0][1] > valid_points[1][1] else valid_points[1]
 
 # Výpočet čepů
-P0_1 = find_lid_mount_main(B1, L_ext1, stroke1, max_angle, H)
+P0_1 = find_lid_mount_flexible(B1, L_closed1, stroke1, max_angle, H, is_rear=False)
 P0_2 = None
 if pocet_vzper == 4:
-    P0_2 = find_lid_mount_rear(B2, L_ext2, stroke2, max_angle, H)
+    P0_2 = find_lid_mount_flexible(B2, L_closed2, stroke2, max_angle, H, is_rear=True)
 
 if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Zkontrolujte, zda zdvih není větší než celková délka, nebo upravte pozici čepu na vaně.")
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru s touto zasunutou délkou (618 mm) neexistuje. Zkuste mírně upravit X/Y pozici čepu na vaně.")
 elif pocet_vzper == 4 and P0_2 is None:
-    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Zkontrolujte rozměry zadní vzpěry a pozici jejího čepu.")
+    st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Upravte pozici zadního čepu na vaně.")
 else:
     angles = np.linspace(0, max_angle, 100)
     M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
@@ -185,9 +169,6 @@ else:
     F_1_strut = max(0, F_1_total / 2)
     F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 
-    if F_1_rounded > 1500:
-        st.warning(f"⚠️ Vypočítaná síla přední vzpěry je extrémně vysoká ({F_1_rounded:.0f} N)! Zkuste posunout čep dál od pantu.")
-
     M_front_act = (F_1_rounded * 2) * d_arms1
     M_net = M_front_act + M_rear - M_grav
     F_user_kg = (M_net / (L_lid / 1000.0)) / g
@@ -210,7 +191,6 @@ else:
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-    # Graf 1
     ax1.plot(*H, 'ko', markersize=8, label='Pant [0,0]')
     lid_poly = np.array([[0, 0], [L_lid, 0], [L_lid, H_lid], [0, H_lid]])
     lid_poly_rot = np.array([rotate(pt, H, current_angle) for pt in lid_poly])
@@ -238,7 +218,6 @@ else:
     
     ax1.invert_xaxis() 
 
-    # Graf 2
     ax2.plot(angles, -F_user_kg, 'b-', lw=2)
     ax2.axhline(0, color='black', lw=1)
     ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10)
