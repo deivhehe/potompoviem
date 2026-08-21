@@ -96,16 +96,25 @@ def solve_aux_pin(Xb2, Yb2, L02, theta_dead):
     guesses = [
         (Xb2 - L02 * 0.5, Yb2 - L02 * 0.3),
         (Xb2 + L02 * 0.3, Yb2 - L02 * 0.5),
+        (Xb2 + L02 * 0.6, Yb2 + L02 * 0.2),
         (-L02, 0.05),
         (0.05, -L02),
+        (L02, 0.05),
         (Xb2, Yb2 - L02),
+        (Xb2, Yb2 + L02),
     ]
     best, best_res = None, np.inf
     for g0 in guesses:
         sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
         res = np.linalg.norm(info["fvec"])
+        # zamítnout degenerované řešení - čep téměř v ose pantu (fyzikálně nesmyslné)
+        if np.hypot(*sol) < 0.02:
+            continue
         if res < best_res:
             best_res, best = res, sol
+    if best is None:
+        # fallback - i degenerované, ale s upozorněním přes vysoký residual
+        best, best_res = guesses[0], np.inf
     return best, best_res
 
 
@@ -324,10 +333,11 @@ def draw_geometry(ax, theta):
     ax.set_xlim(-lim * 0.5, lim)
     ax.set_ylim(-H_lid * 4 - 0.05, lim)
     ax.set_aspect("equal")
+    ax.invert_xaxis()  # pant vpravo dole, X roste doleva (dle reálné orientace)
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°")
-    ax.set_xlabel("X (m)")
-    ax.set_ylabel("Y (m)")
-    ax.legend(loc="upper right", fontsize=8)
+    ax.set_xlabel("X (m) — kladně doleva od pantu")
+    ax.set_ylabel("Y (m) — kladně nahoru od pantu")
+    ax.legend(loc="upper left", fontsize=8)
     ax.grid(alpha=0.3)
 
 
