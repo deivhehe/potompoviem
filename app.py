@@ -25,38 +25,29 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind_hinge=False):
-    def eqs(v):
-        lx, ly = v
-        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
-        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        return [e1, e2]
-
-    guesses = [
-        (L_lid_mm * 0.5, H_lid_mm * 0.5),
-        (-100.0, H_lid_mm * 0.5),
-        (-50.0, 50.0),
-        (L_lid_mm * 0.2, H_lid_mm * 0.8)
-    ]
-    
-    for g0 in guesses:
-        sol, info, ier, _ = fsolve(eqs, g0, full_output=True)
-        if ier == 1 and np.linalg.norm(info["fvec"]) < 1e-3:
-            lx, ly = sol
-            if allow_behind_hinge or lx >= 0.0:
-                return sol, True
-                
+def solve_pin_mm(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind_hinge=False, check_stroke=False):
     def obj(v):
         lx, ly = v
-        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        # Vzdálenost v 0°
+        L_0 = np.sqrt((lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2)
+        # Vzdálenost v theta_max
         Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        return e1**2 + e2**2
+        L_max_angle = np.sqrt((Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2)
+        
+        # Penalizace, pokud je délka mimo povolený rozsah [L_min, L_min + S]
+        pen = 0.0
+        if check_stroke:
+            if L_0 < L_min_mm or L_0 > L_min_mm + S_mm:
+                pen += (min(abs(L_0 - L_min_mm), abs(L_0 - (L_min_mm + S_mm))))**2 * 10.0
+            if L_max_angle < L_min_mm or L_max_angle > L_min_mm + S_mm:
+                pen += (min(abs(L_max_angle - L_min_mm), abs(L_max_angle - (L_min_mm + S_mm))))**2 * 10.0
+        
+        # Chceme, aby se délka v 0° pohybovala rozumně blízko L_min_mm, ale nebyla na ní rigidně závislá
+        return (L_0 - L_min_mm)**2 + pen
 
     x_bounds = (-400.0 if allow_behind_hinge else 0.0, L_lid_mm)
     res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-500, H_lid_mm + 500)], method='L-BFGS-B')
-    if res.success and res.fun < 1.0:
+    if res.success and res.fun < 100.0:
         return res.x, True
 
     return None, False
@@ -111,7 +102,7 @@ if use_aux:
     st.sidebar.header("8) Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
+    L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 500.0, 5.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
 st.sidebar.header("9) Náhled úhlu")
@@ -126,16 +117,28 @@ n_main = 2
 n_aux = 2
 
 # Výpočet pozic čepů na víku
-pin1, ok1 = solve_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, allow_behind_hinge=False)
+def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+    def objective(v):
+        lx, ly = v
+        l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
+        l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
+        return l1**2 + l2**2
+    res = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
+    if res.success and res.fun < 1.0:
+        return res.x, True
+    return None, False
+
+pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
 if not ok1:
     st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu.")
     st.stop()
 lx1, ly1 = pin1
 
 if use_aux:
-    pin2, ok2 = solve_pin_mm(Xb2, Yb2, L0_2, S2, theta_max, lid_length, lid_height, allow_behind_hinge=True)
+    pin2, ok2 = solve_pin_mm(Xb2, Yb2, L_min_2, S2, theta_max, lid_length, lid_height, allow_behind_hinge=True, check_stroke=True)
     if not ok2:
-        st.error("⚠️ Pro zadané parametry pomocné vzpěry nelze geometricky vyřešit pozici čepu (ani na konzolce za pantem).")
+        st.error("⚠️ Pro zadané parametry pomocné vzpěry nelze najít pozici čepu tak, aby se vešla do zdvihu.")
         st.stop()
     lx2, ly2 = pin2
 else:
@@ -153,7 +156,6 @@ def solve_forces():
             Fm, Fa = forces
             if Fm < 10 or Fa < 10:
                 return 1e9
-            # Penalizace na dodržení poměru sil dle slideru
             ratio_actual = Fm / (Fm + Fa + 1e-6)
             ratio_target = force_ratio / 100.0
             ratio_penalty = (ratio_actual - ratio_target)**2 * 100000.0
@@ -203,7 +205,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr víka (s regulací poměru sil)")
+st.title("🔧 Návrh plynových vzpěr víka (volný zdvih pomocné vzpěry)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
