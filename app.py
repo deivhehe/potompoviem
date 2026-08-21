@@ -243,7 +243,7 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie (s osou Y do -400 mm)
+# Vykreslení geometrie
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
@@ -319,12 +319,12 @@ def draw_force_profile(ax, theta_marker=None):
 
 
 col_geo, col_force = st.columns(2)
-fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
-fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
+fig1, ax1 = plt.subplots(figsize=(4, 4))
+fig2, ax2 = plt.subplots(figsize=(4, 4))
 
-# Striktně stejné odsazení zaručí shodnou velikost grafového pole
-for f in [fig1, fig2]:
-    f.subplots_adjust(top=0.88, bottom=0.20, left=0.20, right=0.95)
+common_adjust = {'left': 0.2, 'bottom': 0.2, 'right': 0.95, 'top': 0.9}
+fig1.subplots_adjust(**common_adjust)
+fig2.subplots_adjust(**common_adjust)
 
 theta_disp = np.radians(theta_disp_deg)
 
