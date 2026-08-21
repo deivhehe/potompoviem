@@ -1,6 +1,7 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from matplotlib.patches import Polygon
 from scipy.optimize import fsolve, brentq
 import time
@@ -24,7 +25,6 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     L_mm = np.sqrt((Xp_mm - Xb_mm) ** 2 + (Yp_mm - Yb_mm) ** 2)
     if L_mm < 1e-6:
         return 0.0
-    # rameno v metrech = (Xb*Yp - Yb*Xp) / L v milimetrech / 1000
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
@@ -176,7 +176,6 @@ if use_aux:
             n_aux = 2
 
 def Xcg_m(theta):
-    # cg_x_mm v metrech pro výpočet momentu gravity
     cg_xm = cg_x_mm * 0.001
     cg_ym = cg_y_mm * 0.001
     return cg_xm * np.cos(theta) - cg_ym * np.sin(theta)
@@ -242,16 +241,11 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie (čistě v milimetrech)
+# Vykreslení geometrie (v milimetrech, upravené limity a mřížka po 100 mm)
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
-    box_w = max(lid_length, abs(Xb1) + 50, abs(Xb2) + 50 if use_aux else 0)
-    ax.add_patch(
-        plt.Rectangle((-20, -lid_height * 4), box_w + 20, lid_height * 4, fill=False,
-                      edgecolor="gray", linestyle=":", linewidth=1)
-    )
-
+    
     corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
     corners_global = [rotate_mm(lx, ly, theta) for lx, ly in corners_local]
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
@@ -276,11 +270,18 @@ def draw_geometry_mm(ax, theta):
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
-    lim = max(lid_length, box_w) * 1.3 + 20
-    ax.set_xlim(-lim * 0.2, lim)
-    ax.set_ylim(-lid_height * 4 - 20, lim)
+    # Rozumné ohraničení bez hlubokého propadu do -Y
+    max_dim = max(lid_length, lid_height)
+    ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
+    ax.set_ylim(-150, max(lid_height * 1.5, 300))
+    
     ax.set_aspect("equal")
     ax.invert_xaxis()
+    
+    # Nastavení mřížky a kroků os po 100 mm
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(100))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(100))
+    
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10)
     ax.set_xlabel("X (mm)", fontsize=9)
     ax.set_ylabel("Y (mm)", fontsize=9)
@@ -313,7 +314,7 @@ def draw_force_profile(ax, theta_marker=None):
 
 
 col_geo, col_force = st.columns(2)
-# Oba grafy mají shodnou kompaktní velikost (3.8, 3.4)
+# Oba grafy mají identickou velikost (3.8, 3.4)
 fig1, ax1 = plt.subplots(figsize=(3.8, 3.4))
 fig2, ax2 = plt.subplots(figsize=(3.8, 3.4))
 
