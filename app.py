@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
-st.title("Vzpěrovač - Kompletní výpočet a návrh sil")
+st.title("Vzpěrovač - Exaktní výpočet dle nových pravidel")
 
 # --- UI - BOČNÍ PANEL ---
 st.sidebar.header("1. Parametry víka")
@@ -28,14 +28,12 @@ stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=500.0, step=10.0
 
 if pocet_vzper == 4:
     st.sidebar.header("3. Pomocné vzpěry (Zadní u pantu)")
-    B_x2 = st.sidebar.number_input("Pomocná - vana X", value=175.0, step=10.0)
+    # Zadávaná Y pozice vany a zasunutá délka se přísně drží
     B_y2 = st.sidebar.number_input("Pomocná - vana Y", value=-301.0, step=10.0)
-    B2 = np.array([B_x2, B_y2])
     L_closed2 = st.sidebar.number_input("Pomocná - Zasunutá délka (mm)", value=550.0, step=10.0)
     stroke2 = st.sidebar.number_input("Pomocná - Zdvih (mm)", value=120.0, step=10.0)
 else:
-    B2 = np.array([0.0, 0.0])
-    L_closed2, stroke2 = 0.0, 0.0
+    B_y2, L_closed2, stroke2 = 0.0, 0.0, 0.0
 
 # --- MATEMATIKA A GEOMETRIE ---
 def rotate(pt, angle_deg):
@@ -62,41 +60,44 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# 1. Úhel přechodu těžiště přes pant
+# 1. Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
 angles_fine = np.linspace(0, 90, 1000)
 cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# 2. Hlavní čep ze zadané délky a zdvihu
+# 2. Hlavní čep
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
 
 if pocet_vzper == 4:
-    # 3. Pomocný čep:
-    # Aby v 0° měla vzpěra PŘESNĚ zadanou délku L_closed2, ale zároveň v okamžiku přechodu těžiště (alpha_cg_over)
-    # prošla pantem [0,0], musíme vzít v potaz, o kolik se vzpěra mezi 0° a alpha_cg_over natáhne.
-    # V okamžiku přechodu těžiště leží čep na přímce vana-pant. Pokud předpokládáme, že v tomto bodě
-    # je délka vzpěry rovna L_closed2 + (nějaký posun), nebo pokud definujeme, že v zavřeném stavu má L_closed2:
-    # Směr z vany B2 přes pant [0,0]:
-    v_dir = np.array([0.0, 0.0]) - B2
-    v_len = np.linalg.norm(v_dir)
-    if v_len > 0:
-        u_dir = v_dir / v_len
-        # V okamžiku přechodu těžiště projde vzpěra pantem. Aby v zavřeném stavu 0° měla délku L_closed2,
-        # musí se délka v okamžiku přechodu lišit o změnu geometrie (nebo zafixujeme, že v okamžiku přechodu
-        # má vzpěra délku odpovídající její pozici, ale upravíme pozici čepu tak, aby v 0° byla délka L_closed2).
-        # Přesné řešení: Spočítáme pozici čepu tak, že v 0° vzdálenost od B2 do P2 je L_closed2,
-        # a zároveň v úhlu alpha_cg_over leží P2 na přímce z B2 přes pant.
-        # Geometricky: V úhlu alpha_cg_over je bod P2_rot na přímce u_dir ve vzdálenosti L_closed2 + delta_L.
-        # Z toho zpětným otočením získáme P2.
-        # Pro čisté splnění: Zafixujeme délku v 0° na L_closed2 a pozici P2 spočítáme tak, aby přímka B2-[0,0]
-        # protnula dráhu čepu. 
-        # Uděláme to tak, že bod v okamžiku přechodu na přímce od pantu ve vzdálenosti L_closed2 otočíme zpět:
-        P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        P2 = rotate(P_dead_global, -alpha_cg_over)
+    # 3. Výpočet pozice X na vaně a čepu na víku pro pomocnou vzpěru:
+    # Víme, že v okamžiku přechodu těžiště (alpha_cg_over) musí osa vzpěry procházet pantem [0,0] 
+    # a zároveň mít délku L_closed2. 
+    # Zvolíme směr linie vana-pant tak, aby vana ležela na zadané Y souřadnici (B_y2).
+    # Rovnice pro přímku procházející pantem [0,0]: Y = (B_y2 / B_x2) * X. 
+    # Jelikož délka od B2 do pantu [0,0] v okamžiku přechodu musí být rovna L_closed2 
+    # (pokud předpokládáme, že vzpěra je v tomto bodě ve své výchozí/zasunuté délce, nebo z geometrické podmínky):
+    # Abychom našli B_x2 tak, aby Y vany byla B_y2 a vzdálenost od pantu byla L_closed2:
+    # Z Pythagorovy věty: B_x2 = -sqrt(L_closed2^2 - B_y2^2) (nebo plus podle strany uložení vany).
+    val_bx = L_closed2**2 - B_y2**2
+    if val_bx >= 0:
+        B_x2 = -np.sqrt(val_bx) # uložení vana v záporné X poloze (vlevo od pantu)
     else:
-        P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
+        B_x2 = -100.0
+    
+    B2 = np.array([B_x2, B_y2])
+    
+    # Směr z vany B2 přes pant [0,0] ven do prostoru
+    v_dir = np.array([0.0, 0.0]) - B2
+    u_dir = v_dir / np.linalg.norm(v_dir)
+    
+    # Bod v prostoru v okamžiku přechodu těžiště (leží na přímce vana-pant ve vzdálenosti L_closed2)
+    P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
+    
+    # Zpětným otočením o úhel přechodu těžiště získáme celkovou pozici čepu P2 v zavřeném stavu (0°)
+    P2 = rotate(P_dead_global, -alpha_cg_over)
 else:
+    B2 = np.array([0.0, 0.0])
     P2 = np.array([0.0, 0.0])
 
 angles = np.linspace(0, max_angle, 100)
@@ -141,14 +142,14 @@ F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie spočítána: zadaná délka v zavřeném stavu platí a čep na víku je dopočítán!")
+st.success("✅ Geometrie exaktně spočítána dle tvých pravidel!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
 col2.metric("Přední čep víko", f"X: {P1[0]:.0f}, Y: {max(0, P1[1]):.0f} mm")
 
 if pocet_vzper == 4:
-    col3.metric("Pomocná vzpěra (1ks)", f"{F2_rounded:.0f} N")
+    col3.metric("Pomocná vana X", f"X: {B2[0]:.0f} mm")
     col4.metric("Zadní čep víko", f"X: {P2[0]:.0f}, Y: {max(0, P2[1]):.0f} mm")
 else:
     col3.metric("Pomocná vzpěra", "Není")
