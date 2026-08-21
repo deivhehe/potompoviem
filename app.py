@@ -82,17 +82,14 @@ def get_kinematics(P, B):
 d1, L1 = get_kinematics(P1, B1)
 d2, L2 = get_kinematics(P2, B2) if pocet_vzper == 4 else (np.zeros_like(angles), np.zeros_like(angles))
 
-# Výpočet sil vzpěr (tak, aby v 0° byla síla na zvednutí cca 5 kg)
+# Výpočet sil vzpěr
 target_hand_force_0 = 5.0 # kg
 target_moment_0 = target_hand_force_0 * 9.81 * (L_lid / 1000.0)
 req_M_0 = M_grav[0] - target_moment_0
 
 if pocet_vzper == 4:
-    # Odhad síly pomocné vzpěry tak, aby se vešla do max 650N a udělala mrtvý bod kolem 45-50°
-    # Využijeme momentovou rovnováhu
-    F2 = 300.0 # výchozí předpoklad pro pomocnou vzpěru
+    F2 = 300.0 
     if np.abs(d2[0]) > 0.01:
-        # Zbytek momentu pokryje hlavní vzpěra
         rem_M = req_M_0 - (F2 * 2 * d2[0])
         F1 = max(50.0, rem_M / (2 * d1[0]))
     else:
@@ -101,11 +98,9 @@ else:
     F2 = 0.0
     F1 = max(50.0, req_M_0 / (2 * d1[0]))
 
-# Zaokrouhlení na katalogové hodnoty (krok 50N)
 F1_rounded = np.ceil(max(0, F1) / 50.0) * 50
 F2_rounded = np.ceil(max(0, F2) / 50.0) * 50 if pocet_vzper == 4 else 0.0
 
-# Výpočet síly do ruky v celém průběhu
 M_rear = (F2_rounded * 2) * d2 if pocet_vzper == 4 else np.zeros_like(angles)
 M_front = (F1_rounded * 2) * d1
 F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
@@ -116,18 +111,21 @@ if pocet_vzper == 4:
     if len(cross_idx) > 0:
         alpha_dead = angles[cross_idx[0]]
 
-# --- VÝSTUPNÍ METRIKY ---
+# --- VÝSTUPNÍ METRIKY S X a Y ---
 st.success("✅ Geometrie a síly úspěšně spočítány!")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N", f"Čep víko: [{P1[0]:.0f}, {P1[1]:.0f}] mm")
+
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
+col2.metric("Přední čep víko", f"X: {P1[0]:.0f}, Y: {max(0, P1[1]):.0f} mm")
+
 if pocet_vzper == 4:
-    col2.metric("Pomocná vzpěra (1ks)", f"{F2_rounded:.0f} N", f"Čep víko: [{P2[0]:.0f}, {P2[1]:.0f}] mm")
-    col4.metric("Mrtvý bod pomocné", f"{alpha_dead:.1f}°")
+    col3.metric("Pomocná vzpěra (1ks)", f"{F2_rounded:.0f} N")
+    col4.metric("Zadní čep víko", f"X: {P2[0]:.0f}, Y: {max(0, P2[1]):.0f} mm")
 else:
-    col2.metric("Pomocná vzpěra", "Neaktivní")
+    col3.metric("Pomocná vzpěra", "Není")
     col4.metric("Mrtvý bod", "Není")
 
-col3.metric("Síla do ruky (Zavřeno)", f"{F_user[0]:.1f} kg")
+col5.metric("Síla do ruky (Zavřeno)", f"{F_user[0]:.1f} kg")
 
 st.divider()
 
