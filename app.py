@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
-st.title("Vzpěrovač - CAD Synchronizovaný výpočet (Pevné délky)")
+st.title("Vzpěrovač - Kompletní výpočet a návrh sil")
 
 # --- UI - BOČNÍ PANEL ---
 st.sidebar.header("1. Parametry víka")
@@ -62,27 +62,9 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# 1. Přesný výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
-angles_fine = np.linspace(0, 90, 1000)
-cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
-cg_zero_idx = np.argmin(np.abs(cg_x_coords))
-alpha_cg_over = angles_fine[cg_zero_idx]
-
-# 2. Čepy na víku
+# Výpočet čepů na víku striktně ze zadaných zasunutých délek a zdvihů
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
-
-if pocet_vzper == 4:
-    # Využijeme zadanou L_closed2 jako poloměr pro průchod pantem v okamžiku přechodu těžiště
-    v_dir = np.array([0.0, 0.0]) - B2
-    v_len = np.linalg.norm(v_dir)
-    if v_len > 0:
-        u_dir = v_dir / v_len
-        P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        P2 = rotate(P_dead_global, -alpha_cg_over)
-    else:
-        P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
-else:
-    P2 = np.array([0.0, 0.0])
+P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle) if pocet_vzper == 4 else np.array([0.0, 0.0])
 
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * 9.81 * (np.array([rotate(C_0, a)[0] for a in angles])) / 1000.0
@@ -123,10 +105,14 @@ M_rear = (F2_rounded * 2) * d2 if pocet_vzper == 4 else np.zeros_like(angles)
 M_front = (F1_rounded * 2) * d1
 F_user = (M_grav - (M_front + M_rear)) / (L_lid / 1000.0) / 9.81
 
-alpha_dead = alpha_cg_over if pocet_vzper == 4 else 0.0
+alpha_dead = 0.0
+if pocet_vzper == 4:
+    cross_idx = np.where(np.diff(np.sign(d2)))[0]
+    if len(cross_idx) > 0:
+        alpha_dead = angles[cross_idx[0]]
 
 # --- VÝSTUPNÍ METRIKY S X a Y ---
-st.success("✅ Geometrie synchronizována se zadanými délkami!")
+st.success("✅ Geometrie úspěšně spočítána se zadanými délkami!")
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Hlavní vzpěra (1ks)", f"{F1_rounded:.0f} N")
@@ -191,7 +177,7 @@ ax2.fill_between(angles, 0, F_user, where=(F_user >= 0), facecolor='red', alpha=
 ax2.fill_between(angles, 0, F_user, where=(F_user < 0), facecolor='green', alpha=0.2, label="Drží / brzdit (záporná)")
 
 if pocet_vzper == 4 and alpha_dead > 0:
-    ax2.axvline(alpha_dead, color='orange', linestyle='--', lw=2, label=f'Mrtvý bod (přechod CG): {alpha_dead:.1f}°')
+    ax2.axvline(alpha_dead, color='orange', linestyle='--', lw=2, label=f'Mrtvý bod pomocné: {alpha_dead:.1f}°')
 
 ax2.set_xlabel("Úhel otevření (°)")
 ax2.set_ylabel("Síla potřebná na víku (kg)")
