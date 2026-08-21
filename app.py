@@ -6,37 +6,68 @@ from matplotlib.patches import Polygon
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
 st.title("Vzpěrovač")
 
-# --- UŽIVATELSKé ROZHRANÍ ---
+# --- VÝCHOZÍ HODNOTY (RESET) ---
+DEFAULT_VALUES = {
+    "m": 30.0,
+    "L_lid": 1000.0,
+    "H_lid": 150.0,
+    "C_x": 500.0,
+    "C_y": 75.0,
+    "max_angle": 80.0,
+    "pocet_vzper": 4,
+    "B_x1": 400.0,
+    "B_y1": -250.0,
+    "L_ext1": 600.0,
+    "stroke1": 250.0,
+    "B_x2": 100.0,
+    "B_y2": -120.0,
+    "L_ext2": 350.0,
+    "stroke2": 150.0,
+    "F2_user": 150.0
+}
+
+# Tlačítko pro reset v postranním panelu
+if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
+    for key, value in DEFAULT_VALUES.items():
+        st.session_state[key] = value
+    st.rerun()
+
+# Inicializace session state, pokud ještě neexistuje
+for key, value in DEFAULT_VALUES.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+# --- UŽIVATELSKÉ ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
-m = st.sidebar.number_input("Hmotnost víka (kg)", value=25.0, step=1.0)
-L_lid = st.sidebar.number_input("Délka víka (mm)", value=1000.0, step=10.0)
-H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", value=150.0, step=10.0)
+m = st.sidebar.number_input("Hmotnost víka (kg)", value=st.session_state["m"], step=1.0, key="m")
+L_lid = st.sidebar.number_input("Délka víka (mm)", value=st.session_state["L_lid"], step=10.0, key="L_lid")
+H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", value=st.session_state["H_lid"], step=10.0, key="H_lid")
 
-C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", value=L_lid/2, step=10.0)
-C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", value=H_lid/2, step=10.0)
+C_x = st.sidebar.number_input("Těžiště osa X (mm od pantu)", value=st.session_state["C_x"], step=10.0, key="C_x")
+C_y = st.sidebar.number_input("Těžiště osa Y (mm od pantu)", value=st.session_state["C_y"], step=10.0, key="C_y")
 C_0 = np.array([C_x, C_y]) 
-max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, 80)
+max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, st.session_state["max_angle"], key="max_angle")
 
-pocet_vzper = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=1)
+pocet_vzper = st.sidebar.radio("Počet vzpěr celkem", [2, 4], index=1 if st.session_state["pocet_vzper"]==4 else 0, key="pocet_vzper")
 
 # HLAVNÍ PÁR
 st.sidebar.header("2. Hlavní vzpěry (Přední)")
 st.sidebar.info("Referenční bod [0,0] je pant (vpravo). Kladné X znamená vzdálenost doleva do vany.")
-B_x1 = st.sidebar.number_input("Hlavní - čep vana X", value=300.0, step=10.0)
-B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", value=-300.0, step=10.0)
+B_x1 = st.sidebar.number_input("Hlavní - čep vana X", value=st.session_state["B_x1"], step=10.0, key="B_x1")
+B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", value=st.session_state["B_y1"], step=10.0, key="B_y1")
 B1 = np.array([B_x1, B_y1])
-L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", value=600.0, step=10.0)
-stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=250.0, step=10.0)
+L_ext1 = st.sidebar.number_input("Hlavní - Celková délka (mm)", value=st.session_state["L_ext1"], step=10.0, key="L_ext1")
+stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", value=st.session_state["stroke1"], step=10.0, key="stroke1")
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
     st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
-    B_x2 = st.sidebar.number_input("Zadní - čep vana X", value=50.0, step=10.0)
-    B_y2 = st.sidebar.number_input("Zadní - čep vana Y", value=-150.0, step=10.0)
+    B_x2 = st.sidebar.number_input("Zadní - čep vana X", value=st.session_state["B_x2"], step=10.0, key="B_x2")
+    B_y2 = st.sidebar.number_input("Zadní - čep vana Y", value=st.session_state["B_y2"], step=10.0, key="B_y2")
     B2 = np.array([B_x2, B_y2])
-    L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", value=300.0, step=10.0)
-    stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", value=100.0, step=10.0)
-    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", value=150.0, step=50.0)
+    L_ext2 = st.sidebar.number_input("Zadní - Celková délka (mm)", value=st.session_state["L_ext2"], step=10.0, key="L_ext2")
+    stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", value=st.session_state["stroke2"], step=10.0, key="stroke2")
+    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", value=st.session_state["F2_user"], step=50.0, key="F2_user")
 else:
     F2_user = 0
     B2 = np.array([0,0])
@@ -72,7 +103,6 @@ def find_lid_mount_main(B, L_ext, stroke, max_angle, H):
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
     p3, p4 = np.array([x3, y3]), np.array([x4, y4])
     
-    # Bezpečný filtr pro body na víku (X > 0, Y >= -1)
     valid_points = [p for p in (p3, p4) if p[0] > 0 and p[1] >= -1.0]
     if not len(valid_points): 
         return None
@@ -116,7 +146,7 @@ if pocet_vzper == 4:
     P0_2 = find_lid_mount_rear(B2, L_ext2, stroke2, max_angle, H)
 
 if P0_1 is None:
-    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry (je příliš krátká/dlouhá pro daný úhel).")
+    st.error("❌ Geometrické řešení pro HLAVNÍ vzpěru neexistuje. Změňte pozici čepu na vaně nebo rozměry vzpěry.")
 elif pocet_vzper == 4 and P0_2 is None:
     st.error("❌ Geometrické řešení pro ZADNÍ vzpěru neexistuje. Změňte pozici zadního čepu na vaně nebo rozměry vzpěry.")
 else:
