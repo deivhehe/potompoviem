@@ -239,7 +239,7 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie s upravenou čitelností fontů a os
+# Vykreslení geometrie
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
@@ -275,14 +275,12 @@ def draw_geometry_mm(ax, theta):
     ax.set_aspect("equal")
     ax.invert_xaxis()
     
-    # Rozestupy mřížky po 200 mm, aby se čísla nepřekrývala
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
     
-    # Optimalizovaná velikost fontů pro čitelnost
     ax.tick_params(axis='both', labelsize=8)
     for label in ax.get_xticklabels():
-        label.set_rotation(25)  # mírné natočení, aby se čísla nedotýkala
+        label.set_rotation(25)
 
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
     ax.set_xlabel("X (mm)", fontsize=9)
@@ -294,23 +292,24 @@ def draw_geometry_mm(ax, theta):
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     thetas = np.linspace(0, theta_max, 200)
-    forces_kg = np.array([F_hand(t) / G for t in thetas])
+    # Změněno z kgf na Newtomy (F_hand vrací Newtomy)
+    forces_n = np.array([F_hand(t) for t in thetas])
     degs = np.degrees(thetas)
 
     ax.axhline(0, color="black", linewidth=1)
-    ax.fill_between(degs, forces_kg, 0, where=(forces_kg >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
-    ax.fill_between(degs, forces_kg, 0, where=(forces_kg < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
-    ax.plot(degs, forces_kg, color="black", linewidth=1.5)
+    ax.fill_between(degs, forces_n, 0, where=(forces_n >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
+    ax.fill_between(degs, forces_n, 0, where=(forces_n < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
+    ax.plot(degs, forces_n, color="black", linewidth=1.5)
 
     if theta_dead is not None:
         ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod")
 
     if theta_marker is not None:
-        ax.plot(np.degrees(theta_marker), F_hand(theta_marker) / G, "o", color="black", markersize=8, zorder=6)
+        ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=8, zorder=6)
 
     ax.tick_params(axis='both', labelsize=8)
     ax.set_xlabel("Úhel otevření (°)", fontsize=9)
-    ax.set_ylabel("Síla do ruky (kgf)", fontsize=9)
+    ax.set_ylabel("Síla do ruky (N)", fontsize=9)
     ax.set_title("Profil síly do ruky", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
