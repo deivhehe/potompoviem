@@ -3,88 +3,75 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
-st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Kompletní CAD kontrolní panel")
+st.set_page_config(layout="wide", page_title="Vzpěrovač PRO")
 
-# --- UI - NASTAVENÍ ---
-st.sidebar.header("1. Parametry víka")
-m = st.sidebar.number_input("Hmotnost víka (kg)", value=30.0, step=1.0)
-L_lid = st.sidebar.number_input("Délka víka (mm)", value=1000.0, step=10.0)
-H_lid = st.sidebar.number_input("Výška víka (mm)", value=800.0, step=10.0)
-C_x = st.sidebar.number_input("Těžiště X (mm od pantu)", value=500.0)
-C_y = st.sidebar.number_input("Těžiště Y (mm od pantu)", value=400.0)
-max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, value=80)
+# --- UI ---
+st.title("Vzpěrovač - Profesionální návrh")
+st.sidebar.header("Parametry")
+m = st.sidebar.number_input("Hmotnost víka (kg)", 30.0)
+L_lid = st.sidebar.number_input("Délka víka (mm)", 1000.0)
+H_lid = st.sidebar.number_input("Výška víka (mm)", 150.0)
+C = np.array([st.sidebar.number_input("Těžiště X (mm)", 500.0), st.sidebar.number_input("Těžiště Y (mm)", 75.0)])
+max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, 80)
 
-st.sidebar.header("2. Hlavní vzpěry")
-B1 = np.array([st.sidebar.number_input("Vana X1", value=520.0), st.sidebar.number_input("Vana Y1", value=-126.0)])
-P1 = np.array([st.sidebar.number_input("Víko X1", value=415.0), st.sidebar.number_input("Víko Y1", value=490.0)])
-L_closed1 = st.sidebar.number_input("Zasunutá délka 1 (mm)", value=618.0)
-stroke1 = st.sidebar.number_input("Zdvih 1 (mm)", value=500.0)
+st.sidebar.header("Hlavní vzpěra")
+B1 = np.array([st.sidebar.number_input("Vana X1", 520.0), st.sidebar.number_input("Vana Y1", -126.0)])
+L_c1 = st.sidebar.number_input("Zasunutá délka 1 (mm)", 618.0)
+S1 = st.sidebar.number_input("Zdvih 1 (mm)", 500.0)
 
-st.sidebar.header("3. Zadní vzpěry")
-B2 = np.array([st.sidebar.number_input("Vana X2", value=175.0), st.sidebar.number_input("Vana Y2", value=-301.0)])
-P2 = np.array([st.sidebar.number_input("Víko X2", value=150.0), st.sidebar.number_input("Víko Y2", value=580.0)])
-L_closed2 = st.sidebar.number_input("Zasunutá délka 2 (mm)", value=560.0)
-F2_user = st.sidebar.number_input("Síla zadní (N, 1ks)", value=150.0)
+st.sidebar.header("Pomocná vzpěra")
+B2 = np.array([st.sidebar.number_input("Vana X2", 175.0), st.sidebar.number_input("Vana Y2", -301.0)])
+L_c2 = st.sidebar.number_input("Zasunutá délka 2 (mm)", 560.0)
+S2 = st.sidebar.number_input("Zdvih 2 (mm)", 120.0)
 
-# --- VÝPOČTY ---
+# --- MATEMATIKA ---
+def get_P(B, L_closed, stroke, angle_open):
+    L_open = L_closed + stroke
+    # Průsečík kružnic: S1=B, r1=L_c; S2=B_rot, r2=L_o
+    B_rot = np.array([B[0]*np.cos(np.radians(-angle_open)) - B[1]*np.sin(np.radians(-angle_open)), 
+                      B[0]*np.sin(np.radians(-angle_open)) + B[1]*np.cos(np.radians(-angle_open))])
+    d = np.linalg.norm(B_rot - B)
+    a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
+    h = np.sqrt(max(0, L_closed**2 - a**2))
+    P2 = B + a * (B_rot - B) / d
+    # Dvě řešení, bereme to, co dává smysl pro víko (kladné Y)
+    return np.array([P2[0] - h * (B_rot[1] - B[1]) / d, P2[1] + h * (B_rot[0] - B[0]) / d])
+
+P1 = get_P(B1, L_c1, S1, max_angle)
+P2 = get_P(B2, L_c2, S2, max_angle)
+
+# Výpočet sil
 angles = np.linspace(0, max_angle, 100)
-H = np.array([0.0, 0.0])
+M_grav = m * 9.81 * (np.array([C[0]*np.cos(np.radians(a)) - C[1]*np.sin(np.radians(a)) for a in angles])) / 1000.0
 
-def rotate(pt, angle):
-    a = np.radians(angle)
-    return np.array([pt[0]*np.cos(a) - pt[1]*np.sin(a), pt[0]*np.sin(a) + pt[1]*np.cos(a)])
+def get_d(P, B, a):
+    Pt = np.array([P[0]*np.cos(np.radians(a)) - P[1]*np.sin(a), P[0]*np.sin(a) + P[1]*np.cos(a)])
+    vec = Pt - B
+    L = np.linalg.norm(vec)
+    return (Pt[0]*vec[1] - Pt[1]*vec[0]) / (L * 1000.0)
 
-def get_kinematics(P, B):
-    d_arms, L_act = [], []
-    for a in angles:
-        Pt = rotate(P, a)
-        vec = Pt - B
-        L = np.linalg.norm(vec)
-        L_act.append(L)
-        # Rameno síly = kolmá vzdálenost vektoru vzpěry od pantu
-        d_arms.append((Pt[0]*vec[1] - Pt[1]*vec[0]) / (L * 1000.0))
-    return np.array(d_arms), np.array(L_act)
+d1 = np.array([get_d(P1, B1, a) for a in angles])
+d2 = np.array([get_d(P2, B2, a) for a in angles])
 
-d1, L1 = get_kinematics(P1, B1)
-d2, L2 = get_kinematics(P2, B2)
-M_grav = m * 9.81 * (np.array([rotate([C_x, C_y], a)[0] for a in angles])) / 1000.0
+# F1: Aby v 0° síla na zvednutí byla 5 kg
+F1 = (M_grav[0] - 5*9.81*L_lid/1000 - F2_user*2*d2[0]) / (2*d1[0])
+F1 = max(50.0, F1)
+F_user = (M_grav - (F1*2*d1 + F2_user*2*d2)) / (L_lid/1000) / 9.81
 
-# Síla přední (1ks) vypočtená tak, aby víko v zavřeném stavu potřebovalo zvednout cca 5kg
-target_hand_force = 5.0 
-req_M_0 = M_grav[0] - (target_hand_force * 9.81 * L_lid/1000)
-F1 = max(50.0, np.ceil(max(0, (req_M_0 - F2_user * 2 * d2[0]) / (2 * d1[0])) / 50) * 50)
-F_user = (M_grav - (F1 * 2 * d1 + F2_user * 2 * d2)) / (L_lid / 1000.0) / 9.81
-alpha_dead = angles[np.argmin(np.abs(d2))]
+# --- VÝSTUP ---
+col1, col2, col3 = st.columns(3)
+col1.metric("Pozice čepu víko 1 [X, Y]", f"[{P1[0]:.0f}, {P1[1]:.0f}]")
+col2.metric("Pozice čepu víko 2 [X, Y]", f"[{P2[0]:.0f}, {P2[1]:.0f}]")
+col3.metric("Síla hlavní vzpěry (1ks)", f"{F1:.0f} N")
 
-# --- METRIKY ---
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Hlavní vzpěra (1ks)", f"{F1:.0f} N")
-col2.metric("Přední čep víko (X,Y)", f"[{P1[0]:.0f}, {P1[1]:.0f}]")
-col3.metric("Zadní čep víko (X,Y)", f"[{P2[0]:.0f}, {P2[1]:.0f}]")
-col4.metric("Síla (Zavřeno)", f"{F_user[0]:.1f} kg")
-col5.metric("Mrtvý bod zadní", f"{alpha_dead:.1f}°")
-
-# --- VIZUALIZACE ---
-curr = st.slider("Animace úhlu", 0.0, float(max_angle), 0.0)
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
-
-# Nákres
-lid = Polygon(np.array([rotate(pt, curr) for pt in [[0,0], [L_lid,0], [L_lid,H_lid], [0,H_lid]]]), facecolor='gray', alpha=0.3)
-ax1.add_patch(lid)
-cg = rotate([C_x, C_y], curr)
-ax1.plot(*cg, 'ro', markersize=12, label="Těžiště CG")
-for P, B, col, lbl in [(P1, B1, 'b', 'Hlavní'), (P2, B2, 'r', 'Zadní')]:
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+# Vizualizace
+curr = st.slider("Animace", 0.0, float(max_angle), 0.0)
+ax1.plot(*rotate(C, curr), 'ro', markersize=10, label="CG")
+for P, B, col in [(P1, B1, 'b'), (P2, B2, 'r')]:
     Pt = rotate(P, curr)
-    ax1.plot([B[0], Pt[0]], [B[1], Pt[1]], col+'-', lw=3, label=lbl)
-    ax1.plot(*B, col+'s'); ax1.plot(*Pt, col+'o')
-
-ax1.set_aspect('equal'); ax1.set_xlim(-200, 1200); ax1.set_ylim(-400, 900); ax1.grid(True); ax1.legend()
-ax1.invert_xaxis()
-
-# Graf síly
-ax2.plot(angles, F_user, 'g-', lw=2)
-ax2.axhline(0, color='k'); ax2.axvline(alpha_dead, color='orange', linestyle='--')
-ax2.plot(curr, F_user[int((curr/max_angle)*99)], 'ro', markersize=10)
-ax2.set_title("Profil síly do ruky (kg)"); ax2.grid(True)
+    ax1.plot([B[0], Pt[0]], [B[1], Pt[1]], col+'-')
+ax1.set_xlim(-200, 1200); ax1.set_ylim(-400, 800); ax1.grid()
+ax2.plot(angles, F_user); ax2.axhline(0, color='k'); ax2.grid()
+ax2.set_title("Síla do ruky (kg)")
 st.pyplot(fig)
