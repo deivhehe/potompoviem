@@ -11,7 +11,7 @@ st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 G = 9.81  # m/s^2
 
 # ----------------------------------------------------------------------
-# Pomocné fyzikální funkce (pracují v milimetrech pro geometrii)
+# Pomocné fyzikální funkce
 # ----------------------------------------------------------------------
 def rotate_mm(lx, ly, theta):
     c, s = np.cos(theta), np.sin(theta)
@@ -148,7 +148,7 @@ if use_aux:
     F_aux_catalog = st.sidebar.number_input("Katalogová síla 1 ks pomocné vzpěry (N)", 50.0, 2000.0, 200.0, 10.0)
 
 st.sidebar.header("5) Cílové síly do ruky")
-target_open_kg = st.sidebar.slider("Síla na otevření @0° (kgf)", 0.5, 15.0, 5.0, 0.5)
+target_open_N_input = st.sidebar.slider("Síla na otevření @0° (N)", 5.0, 150.0, 50.0, 5.0)
 
 st.sidebar.header("6) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
@@ -181,13 +181,12 @@ def Xcg_m(theta):
 def Tg(theta):
     return -lid_mass * G * Xcg_m(theta)
 
-target_open_N = target_open_kg * G
 L_lid_m = lid_length * 0.001
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 
 if use_aux and pin2 is not None:
     d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
-    moment_sum_needed = -(Tg(0.0) + target_open_N * L_lid_m)
+    moment_sum_needed = -(Tg(0.0) + target_open_N_input * L_lid_m)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
     F_main = (moment_sum_needed - moment_from_aux) / denom if abs(denom) > 1e-9 else 0.0
@@ -195,7 +194,7 @@ if use_aux and pin2 is not None:
 else:
     F_aux = None
     denom = n_main * d1_0
-    F_main = (-(Tg(0.0) + target_open_N * L_lid_m)) / denom if abs(denom) > 1e-9 else 0.0
+    F_main = (-(Tg(0.0) + target_open_N_input * L_lid_m)) / denom if abs(denom) > 1e-9 else 0.0
 
 def F_hand(theta):
     Ts = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
@@ -209,15 +208,15 @@ def F_hand(theta):
 st.title("🔧 Návrh plynových vzpěr výklopného víka")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N", f"{F_main/G:.1f} kgf")
+c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
 if use_aux and F_aux is not None:
-    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N", f"{F_aux/G:.1f} kgf")
+    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
 else:
     c2.metric("Síla pomocné vzpěry", "—")
-c3.metric("Síla do ruky @0°", f"{F_hand(0.0)/G:.2f} kgf")
+c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
 c4.metric(
     "Síla do ruky @max",
-    f"{F_hand(theta_max)/G:.2f} kgf",
+    f"{F_hand(theta_max):.1f} N",
     "pomáhá zavírat" if F_hand(theta_max) < 0 else "ještě otevírá",
 )
 
@@ -292,7 +291,6 @@ def draw_geometry_mm(ax, theta):
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     thetas = np.linspace(0, theta_max, 200)
-    # Změněno z kgf na Newtomy (F_hand vrací Newtomy)
     forces_n = np.array([F_hand(t) for t in thetas])
     degs = np.degrees(thetas)
 
