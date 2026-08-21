@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač - Optimalizace zadního páru")
+st.title("Vzpěrovač - Výpočet plynových vzpěr")
 
 # --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
@@ -37,7 +37,7 @@ if st.sidebar.button("🔄 Resetovat do výchozího stavu"):
         st.session_state[key] = value
     st.rerun()
 
-# --- UŽIVATELSKé ROZHRANÍ ---
+# --- UŽIVATELSKÉ ROZHRANÍ ---
 st.sidebar.header("1. Parametry víka")
 m = st.sidebar.number_input("Hmotnost víka (kg)", step=1.0, key="m")
 L_lid = st.sidebar.number_input("Délka víka (mm)", step=10.0, key="L_lid")
@@ -63,7 +63,7 @@ stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
     st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
-    st.sidebar.info("Program automaticky navrhne čep na víku tak, aby osa vzpěry v mrtvém bodě prošla pantem.")
+    st.sidebar.info("Osa zadní vzpěry v mrtvém úhlu (těžiště nad pantem) prochází osou pantu.")
     B_x2 = st.sidebar.number_input("Zadní - čep vana X", step=10.0, key="B_x2")
     B_y2 = st.sidebar.number_input("Zadní - čep vana Y", step=10.0, key="B_y2")
     B2 = np.array([B_x2, B_y2])
@@ -111,8 +111,7 @@ def find_main_mount(B, L_closed_base, stroke, max_angle, H):
 # 1. Výpočet čepu hlavní vzpěry
 P0_1 = find_main_mount(B1, L_closed1, stroke1, max_angle, H)
 
-# 2. Automatický návrh čepu zadní vzpěry tak, aby v mrtvém úhlu prošel pantem
-# Najdeme úhel, kde je těžiště nad pantem (tj. X souřadnice těžiště v globálním systému je rovna X pantu)
+# 2. Automatický návrh čepu zadní vzpěry
 angles_test = np.linspace(0, max_angle, 500)
 C_test_x = np.array([rotate(C_0, H, a)[0] for a in angles_test])
 dead_angle_idx = np.argmin(np.abs(C_test_x - H[0]))
@@ -120,16 +119,11 @@ alpha_dead = angles_test[dead_angle_idx]
 
 P0_2 = np.array([100.0, 20.0])
 if pocet_vzper == 4:
-    # V tomto mrtvém úhlu alpha_dead musí vzpěra tvořit přímku B2 - H - P_dead
-    # Zvolíme délku zadní vzpěry v tomto mrtvém bodě jako L_closed2 (nebo střední délku)
-    # Vektor z B2 skrz H ven na víko v úhlu alpha_dead:
     v_dir = H - B2
     v_len = np.linalg.norm(v_dir)
     if v_len > 0:
         u_dir = v_dir / v_len
-        # Pozice čepu v mrtvém bodě v prostoru vany/světa
         P_dead_global = H + u_dir * L_closed2
-        # Rotujeme tento bod zpět o alpha_dead, abychom dostali souřadnice na lokálním víku v 0°
         P0_2 = rotate(P_dead_global, H, -alpha_dead)
 
 # Kinematika
@@ -153,31 +147,34 @@ d_arms1, L_act1 = get_kinematics(P0_1, B1)
 M_rear = np.zeros_like(angles)
 if pocet_vzper == 4:
     d_arms2, L_act2 = get_kinematics(P0_2, B2)
+    # Zadní pár (2 ks celkem)
     M_rear = (F2_user * 2) * d_arms2
 
-valid_idx = np.abs(d_arms1) > 0.015 
+# Výpočet potřebné síly přední vzpěry (bereme maximum tam, kde hlavní vzpěra nejvíc tahá)
+valid_idx = np.abs(d_arms1) > 0.05 
 if np.any(valid_idx):
-    req_M_front = (M_grav * 1.1) - M_rear
-    F_1_total = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx]))
+    # Požadovaný moment, který musí pokrýt hlavní vzpěry
+    req_M_front = M_grav - M_rear
+    # Hledáme maximální potřebnou sílu na jednu přední vzpěru v celém průběhu
+    F_1_strut = np.max(req_M_front[valid_idx] / np.abs(d_arms1[valid_idx])) / 2.0
 else:
-    F_1_total = 0
+    F_1_strut = 0
 
-# Výsledek pro 1 ks hlavní vzpěry
-F_1_strut = max(0, F_1_total / 2)
-F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
+F_1_rounded = max(50.0, np.ceil(max(0, F_1_strut) / 50.0) * 50)
 
+# Celkový moment vzpěr a síla do ruky
 M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success(f"✅ Mrtvý úhel zadní vzpěry optimalizován na cca **{alpha_dead:.1f}°** (kdy je těžiště nad pantem).")
+st.success(f"✅ Výpočet hotov! Mrtvý úhel zadní vzpěry: cca **{alpha_dead:.1f}°**.")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
+col2.metric("Přední čep víko (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
 if pocet_vzper == 4:
-    col2.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+    col3.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
 else:
-    col2.metric("Zadní vzpěra", "Není osazena")
-col3.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg")
+    col3.metric("Zadní vzpěra", "Není osazena")
 col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
 
 st.divider()
