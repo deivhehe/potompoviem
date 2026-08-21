@@ -1,11 +1,10 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from scipy.optimize import minimize, brentq
 import time
 
-st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
+st.set_page_config(page_title="Optimalizovaný návrh plynových vzpěr víka", layout="wide")
 
 G = 9.81  # m/s^2
 
@@ -25,57 +24,6 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
-    def objective(v):
-        lx, ly = v
-        l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
-        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        return l1**2 + l2**2
-
-    res = minimize(
-        objective, 
-        [L_lid_mm * 0.4, H_lid_mm * 0.4], 
-        bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], 
-        method='L-BFGS-B'
-    )
-    
-    if res.success and res.fun < 100.0:
-        return res.x, res.fun, True
-        
-    return None, np.inf, False
-
-
-def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
-    R2 = Xb2_mm ** 2 + Yb2_mm ** 2
-    R = np.sqrt(R2)
-    if R < 1e-6:
-        return None, np.inf, False, None
-
-    sin_d, cos_d = np.sin(theta_dead), np.cos(theta_dead)
-    disc = (L02_mm ** 2) / R2 - sin_d ** 2
-    if disc < 0:
-        return None, np.inf, False, R * abs(sin_d)
-
-    sq = np.sqrt(disc)
-    ux, uy = rotate_mm(Xb2_mm, Yb2_mm, -theta_dead)
-
-    x_lo, x_hi = 0.0, L_lid_mm
-    y_lo, y_hi = 0.0, H_lid_mm
-
-    sols = []
-    for t in (cos_d + sq, cos_d - sq):
-        lx, ly = t * ux, t * uy
-        if not (x_lo <= lx <= x_hi and y_lo <= ly <= y_hi):
-            continue
-        sols.append((lx, ly))
-
-    if not sols:
-        return None, np.inf, False, R * abs(sin_d)
-
-    return np.array(sols[0]), 0.0, True, R * abs(sin_d)
-
-
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
     f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
     if f(0.0) * f(theta_max) >= 0:
@@ -87,7 +35,7 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
 
 
 # ----------------------------------------------------------------------
-# UI - Sidebar
+# UI - Sidebar (Vstupy)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Geometrie a hmotnost víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 1109.0, 10.0)
@@ -105,37 +53,89 @@ cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np
 st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("5) Konfigurace vzpěr")
-config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
-use_aux = config.startswith("2× hlavní +")
-
-st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-Xb1 = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, 585.0, 5.0)
-Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
-L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
+st.sidebar.header("5) Parametry vzpěr (zádává se jen hardware)")
+st.sidebar.subheader("Hlavní vzpěra")
+L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
-if use_aux:
-    st.sidebar.subheader("Pomocná (zadní) vzpěra (1 ks)")
-    Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
-    Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
-    S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm) [info]", 10.0, 1500.0, 100.0, 5.0)
-    F_aux_catalog = st.sidebar.number_input("Katalogová síla 1 ks pomocné vzpěry (N)", 50.0, 2000.0, 500.0, 10.0)
+st.sidebar.subheader("Pomocná vzpěra")
+L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
+S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
 st.sidebar.header("6) Cílové síly do ruky")
-target_open_N_input = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 160.0, 5.0)
-target_close_N_input = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -200.0, 5.0)
+target_open_N = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 160.0, 5.0)
+target_close_N = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -200.0, 5.0)
 
 st.sidebar.header("7) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Výpočty
+# Optimalizační jádro (Syntéza mechanismu)
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main = 2
+n_aux = 2
+
+def optimize_mechanism():
+    # Vektor proměnných k optimalizaci: 
+    # [Xb1, Yb1, lx1, ly1, F_main, Xb2, Yb2, lx2, ly2, F_aux]
+    def objective(vars):
+        Xb1, Yb1, lx1, ly1, Fm, Xb2, Yb2, lx2, ly2, Fa = vars
+        
+        # Geometrické podmínky pro hlavní vzpěru
+        e1 = (lx1 - Xb1)**2 + (ly1 - Yb1)**2 - L0_1**2
+        Xp1_max, Yp1_max = rotate_mm(lx1, ly1, theta_max)
+        e2 = (Xp1_max - Xb1)**2 + (Yp1_max - Yb1)**2 - (L0_1 + S1)**2
+        
+        # Geometrické podmínky pro pomocnou vzpěru
+        e3 = (lx2 - Xb2)**2 + (ly2 - Yb2)**2 - L0_2**2
+        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
+        e4 = (Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2 - (L0_2 + S2)**2
+
+        # Momentové rovnice pro splnění cílových sil @0° a @max
+        cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
+        Tg_0 = -lid_mass * G * cg_xm
+        h_arm_0 = np.hypot(handle_x_mm, handle_y_mm) * 0.001
+        
+        d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
+        d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
+        F_hand_0 = -(Tg_0 + n_main * Fm * d1_0 + n_aux * Fa * d2_0) / h_arm_0
+        
+        Tg_max = -lid_mass * G * (cg_xm * np.cos(theta_max) - cg_ym * np.sin(theta_max))
+        hx_m, hy_m = rotate_mm(handle_x_mm, handle_y_mm, theta_max)
+        h_arm_max = np.hypot(hx_m, hy_m) * 0.001
+        
+        d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
+        d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
+        F_hand_max = -(Tg_max + n_main * Fm * d1_max + n_aux * Fa * d2_max) / h_arm_max
+
+        # Chyba splnění cílů
+        err_open = (F_hand_0 - target_open_N)**2
+        err_close = (F_hand_max - target_close_N)**2
+        err_geom = e1**2 + e2**2 + e3**2 + e4**2
+
+        return err_geom * 10.0 + err_open + err_close
+
+    # Počáteční odhady
+    x0 = [500.0, -100.0, 600.0, 400.0, 500.0, 200.0, -200.0, 300.0, 200.0, 300.0]
+    
+    # Hranice pro proměnné [VanaX, VanaY, ČepX, ČepY, Síla]
+    bounds = [
+        (-200, lid_length), (-500, 300), (0, lid_length), (0, lid_height), (50, 2500), # Hlavní
+        (-200, lid_length), (-500, 300), (0, lid_length), (0, lid_height), (50, 2500)  # Pomocná
+    ]
+
+    res = minimize(objective, x0, bounds=bounds, method='L-BFGS-B', options={'maxiter': 2000})
+    if res.success:
+        return res.x
+    return x0
+
+# Spuštění optimalizace pro nalezení ideálních parametrů
+opt_vars = optimize_mechanism()
+Xb1, Yb1, lx1, ly1, F_main, Xb2, Yb2, lx2, ly2, F_aux = opt_vars
+
+theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 
 def Xcg_m(theta):
     cg_xm = cg_x_mm * 0.001
@@ -150,95 +150,32 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
-
-if pin1 is None:
-    st.error("⚠️ Pro zadanou vanu a délku vzpěry nelze najít čep uvnitř víka. Upravte Vana X/Y nebo Zasunutou délku.")
-    st.stop()
-
-lx1, ly1 = pin1
-theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
-
-pin2 = None
-n_aux = 2
-if use_aux:
-    if theta_dead is not None:
-        pin2, res2, in_env2, min_L02 = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
-        if pin2 is not None:
-            lx2, ly2 = pin2
-
-d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
-h_arm_0 = handle_moment_arm_m(0.0)
-
-# Výpočet síly hlavní vzpěry tak, aby reflektovala i požadavek na zavírání v max úhlu
-d1_max = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta_max)
-h_arm_max = handle_moment_arm_m(theta_max)
-
-if use_aux and pin2 is not None:
-    d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
-    d2_max = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_max)
-    moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
-    moment_from_aux = n_aux * d2_0 * F_aux_catalog
-    denom = n_main * d1_0
-    F_main = (moment_sum_needed - moment_from_aux) / denom if abs(denom) > 1e-9 else 0.0
-    F_aux = F_aux_catalog
-else:
-    F_aux = None
-    # Optimalizační propočet F_main tak, aby zohlednil požadavek na @0 i @max
-    denom = n_main * d1_0
-    F_main = (-(Tg(0.0) + target_open_N_input * h_arm_0)) / denom if abs(denom) > 1e-9 else 0.0
-    
-    # Pokud uživatel chce korigovat sílu na max, můžeme udělat vážený průměr nebo čistý přepočet dle max pozice
-    # Zde přizpůsobíme F_main primárně dle požadavku na zavírání @max, pokud je aktivní:
-    denom_max = n_main * d1_max
-    if abs(denom_max) > 1e-9:
-        F_main_max_target = (-(Tg(theta_max) + target_close_N_input * h_arm_max)) / denom_max
-        # Využijeme kompromis nebo primárně cílíme na zavírací sílu podle zadání
-        F_main = 0.5 * F_main + 0.5 * F_main_max_target
-
 def F_hand(theta):
     Ts_main = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
-    Ts_aux = 0.0
-    if use_aux and pin2 is not None and F_aux is not None:
-        Ts_aux = n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
-    
+    Ts_aux = n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta)
     h_arm = handle_moment_arm_m(theta)
     return -(Tg(theta) + Ts_main + Ts_aux) / h_arm
 
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (Regulace sil zavírání)")
+st.title("🔧 Optimalizovaný návrh plynových vzpěr víka")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
-if use_aux and F_aux is not None:
-    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
-else:
-    c2.metric("Síla pomocné vzpěry", "—")
+c1.metric("Dopočítaná síla hlavní (1 ks)", f"{F_main:.0f} N")
+c2.metric("Dopočítaná síla pomocné (1 ks)", f"{F_aux:.0f} N")
 c3.metric("Síla do ruky @0°", f"{F_hand(0.0):.1f} N")
-
 f_max_val = F_hand(theta_max)
-c4.metric(
-    "Síla do ruky @max",
-    f"{f_max_val:.1f} N",
-    "pomáhá zavírat" if f_max_val < 0 else "tlačí ven",
-)
+c4.metric("Síla do ruky @max", f"{f_max_val:.1f} N", "pomáhá zavírat" if f_max_val < 0 else "tlačí ven")
 
 c5, c6, c7, c8 = st.columns(4)
-c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
-c6.metric("Čep na víku – hlavní Y", f"{ly1:.1f} mm")
-if use_aux and pin2 is not None:
-    c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm")
-    c8.metric("Čep na víku – pomocná Y", f"{ly2:.1f} mm")
-else:
-    c7.metric("Čep na víku – pomocná X", "—")
-    c8.metric("Čep na víku – pomocná Y", "—")
+c5.metric("Hlavní vana X / Y", f"{Xb1:.1f} / {Yb1:.1f} mm")
+c6.metric("Hlavní čep X / Y", f"{lx1:.1f} / {ly1:.1f} mm")
+c7.metric("Pomocná vana X / Y", f"{Xb2:.1f} / {Yb2:.1f} mm")
+c8.metric("Pomocná čep X / Y", f"{lx2:.1f} / {ly2:.1f} mm")
 
 if theta_dead is not None:
-    st.info(f"🔹 Mrtvý bod (těžiště nad pantem) při úhlu **{np.degrees(theta_dead):.1f}°**")
-else:
-    st.info("🔹 Mrtvý bod nebyl v zadaném rozsahu úhlů nalezen.")
+    st.info(f"🔹 Mrtvý bod při úhlu **{np.degrees(theta_dead):.1f}°**")
 
 st.divider()
 
@@ -269,11 +206,10 @@ def draw_geometry_mm(ax, theta):
     ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
     ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
 
-    if use_aux and pin2 is not None:
-        Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
-        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
-        ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
-        ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
+    Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
+    ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
+    ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
+    ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
