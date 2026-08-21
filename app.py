@@ -4,9 +4,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
 st.set_page_config(layout="wide", page_title="Vzpěrovač")
-st.title("Vzpěrovač")
+st.title("Vzpěrovač - Optimalizace zadního páru")
 
-# --- VÝCHOZÍ HODNOTY (ODPOVÍDAJÍCÍ TVÉMU CADU) ---
+# --- VÝCHOZÍ HODNOTY ---
 DEFAULT_VALUES = {
     "m": 30.0,
     "L_lid": 1000.0,
@@ -15,15 +15,17 @@ DEFAULT_VALUES = {
     "C_y": 75.0,
     "max_angle": 80.0,
     "pocet_vzper": 4,
-    "B_x1": 520.0,
-    "B_y1": -126.0,
+    # Hlavní pár
+    "B_x1": 400.0,
+    "B_y1": -250.0,
     "L_closed1": 618.0,
     "stroke1": 500.0,
-    "B_x2": 175.0,
-    "B_y2": -301.0,
-    "L_closed2": 560.0,
-    "stroke2": 120.0,
-    "F2_user": 200.0
+    # Asistenční pár (zadní)
+    "B_x2": 50.0,
+    "B_y2": -80.0,
+    "L_closed2": 300.0,
+    "stroke2": 100.0,
+    "F2_user": 150.0
 }
 
 for key, value in DEFAULT_VALUES.items():
@@ -52,28 +54,26 @@ pocet_vzper = st.session_state["pocet_vzper"]
 
 # HLAVNÍ PÁR
 st.sidebar.header("2. Hlavní vzpěry (Přední)")
-st.sidebar.info("Referenční bod [0,0] je pant (vpravo). Kladné X znamená vzdálenost doleva do vany.")
 B_x1 = st.sidebar.number_input("Hlavní - čep vana X", step=10.0, key="B_x1")
 B_y1 = st.sidebar.number_input("Hlavní - čep vana Y", step=10.0, key="B_y1")
 B1 = np.array([B_x1, B_y1])
 L_closed1 = st.sidebar.number_input("Hlavní - Zasunutá délka (mm)", step=10.0, key="L_closed1")
 stroke1 = st.sidebar.number_input("Hlavní - Zdvih (mm)", step=10.0, key="stroke1")
-L_ext1 = L_closed1 + stroke1
 
 # ASISTENČNÍ PÁR
 if pocet_vzper == 4:
     st.sidebar.header("3. Asistenční vzpěry (Zadní u pantu)")
+    st.sidebar.info("Program automaticky navrhne čep na víku tak, aby osa vzpěry v mrtvém bodě prošla pantem.")
     B_x2 = st.sidebar.number_input("Zadní - čep vana X", step=10.0, key="B_x2")
     B_y2 = st.sidebar.number_input("Zadní - čep vana Y", step=10.0, key="B_y2")
     B2 = np.array([B_x2, B_y2])
     L_closed2 = st.sidebar.number_input("Zadní - Zasunutá délka (mm)", step=10.0, key="L_closed2")
     stroke2 = st.sidebar.number_input("Zadní - Zdvih (mm)", step=10.0, key="stroke2")
-    L_ext2 = L_closed2 + stroke2
-    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N)", step=50.0, key="F2_user")
+    F2_user = st.sidebar.number_input("Síla zadní vzpěry (N, 1ks)", step=50.0, key="F2_user")
 else:
     F2_user = 0
     B2 = np.array([0,0])
-    L_ext2, L_closed2, stroke2 = 0, 0, 0
+    L_closed2, stroke2 = 0, 0
 
 g = 9.81
 H = np.array([0.0, 0.0]) # Pant
@@ -86,66 +86,53 @@ def rotate(pt, origin, angle_deg):
         origin[1] + (pt[0] - origin[0]) * np.sin(a) + (pt[1] - origin[1]) * np.cos(a)
     ])
 
-def find_lid_mount_main(B, L_closed_base, stroke, max_angle, H):
+def find_main_mount(B, L_closed_base, stroke, max_angle, H):
     L_closed = max(L_closed_base + 5.0, 20.0)
     L_open = L_closed_base + stroke
-    
     B_rot = rotate(B, H, -max_angle)
     d = np.linalg.norm(B_rot - B)
-    if d > (L_closed + L_open) + 20.0 or d < abs(L_closed - L_open) - 20.0 or d == 0:
-        return np.array([L_lid * 0.3, 20.0])
-    
+    if d == 0: return np.array([200.0, 50.0])
     sum_r = L_closed + L_open
-    if d > sum_r: d = sum_r
     diff_r = abs(L_closed - L_open)
+    if d > sum_r: d = sum_r
     if d < diff_r: d = diff_r + 0.1
-
     a = (L_closed**2 - L_open**2 + d**2) / (2 * d)
     val = L_closed**2 - a**2
     h = np.sqrt(max(0, val))
-    
     P2 = B + a * (B_rot - B) / d
     x3 = P2[0] + h * (B_rot[1] - B[1]) / d
     y3 = P2[1] - h * (B_rot[0] - B[0]) / d
     x4 = P2[0] - h * (B_rot[1] - B[1]) / d
     y4 = P2[1] + h * (B_rot[0] - B[0]) / d
-    
     candidates = [np.array([x3, y3]), np.array([x4, y4])]
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -20]
-    if valid:
-        return max(valid, key=lambda p: p[0])
-    return candidates[0]
+    return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-def find_lid_mount_cad(B, L_min, L_max, max_angle, H, is_rear=False):
-    # Pro zadní vzpěru z CADu vezmeme střední provozní délku jako odhad pro umístění čepu na víku
-    L_mid = (L_min + L_max) / 2.0
-    # Zkusíme najít pozici na víku v zavřeném stavu tak, aby vzdálenost od B byla L_min (nebo L_max)
-    # Pro zjednodušení a stabilitu vezmeme přibližný odhad směrem nahoru do víka
-    # Využijeme směr od pantu nahoru doprava do středu víka
-    est_x = 100.0 if is_rear else 400.0
-    est_y = 50.0
-    return np.array([est_x, est_y])
+# 1. Výpočet čepu hlavní vzpěry
+P0_1 = find_main_mount(B1, L_closed1, stroke1, max_angle, H)
 
-# Výpočet čepů
-P0_1 = find_lid_mount_main(B1, L_closed1, stroke1, max_angle, H)
+# 2. Automatický návrh čepu zadní vzpěry tak, aby v mrtvém úhlu prošel pantem
+# Najdeme úhel, kde je těžiště nad pantem (tj. X souřadnice těžiště v globálním systému je rovna X pantu)
+angles_test = np.linspace(0, max_angle, 500)
+C_test_x = np.array([rotate(C_0, H, a)[0] for a in angles_test])
+dead_angle_idx = np.argmin(np.abs(C_test_x - H[0]))
+alpha_dead = angles_test[dead_angle_idx]
 
+P0_2 = np.array([100.0, 20.0])
 if pocet_vzper == 4:
-    # Pro zadní vzpěru využijeme přesnou pozici z CADu, pokud uživatel zadal čep na víku nebo ho dopočítáme z délky
-    # Zde definujeme čep na víku pro zadní vzpěru tak, aby odpovídal 560mm v zavřeném stavu
-    # Vzdálenost B2 do P0_2 v zavřeném stavu (0°) je rovna L_closed2 (560 mm)
-    # Zvolíme bod na víku ležící ve vzdálenosti L_closed2 od B2 podél přibližného úhlu víka
-    vec_est = np.array([80.0, 30.0]) # výchozí pozice na víku pro zadní čep
-    P0_2 = vec_est
-else:
-    P0_2 = np.array([0.0, 0.0])
+    # V tomto mrtvém úhlu alpha_dead musí vzpěra tvořit přímku B2 - H - P_dead
+    # Zvolíme délku zadní vzpěry v tomto mrtvém bodě jako L_closed2 (nebo střední délku)
+    # Vektor z B2 skrz H ven na víko v úhlu alpha_dead:
+    v_dir = H - B2
+    v_len = np.linalg.norm(v_dir)
+    if v_len > 0:
+        u_dir = v_dir / v_len
+        # Pozice čepu v mrtvém bodě v prostoru vany/světa
+        P_dead_global = H + u_dir * L_closed2
+        # Rotujeme tento bod zpět o alpha_dead, abychom dostali souřadnice na lokálním víku v 0°
+        P0_2 = rotate(P_dead_global, H, -alpha_dead)
 
-# Pro přesnost v CAD režimu můžeme nechat P0_2 spočítat tak, aby v zavřeném stavu seděla vzdálenost
-if pocet_vzper == 4:
-    # Zajištění, že vzdálenost v zavřeném stavu odpovídá L_closed2 (560 mm)
-    # Hledáme bod na víku (Y > 0), který je ve vzdálenosti L_closed2 od B2
-    # Zkusíme najít průsečík kružnice (střed B2, poloměr L_closed2) a přímky víka (např. Y = H_lid)
-    P0_2 = np.array([B2[0] + L_closed2 * 0.7, H_lid]) # stabilní bod na víku
-
+# Kinematika
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * g * (np.array([rotate(C_0, H, a)[0] for a in angles]) - H[0]) / 1000.0
 
@@ -175,6 +162,7 @@ if np.any(valid_idx):
 else:
     F_1_total = 0
 
+# Výsledek pro 1 ks hlavní vzpěry
 F_1_strut = max(0, F_1_total / 2)
 F_1_rounded = np.ceil(F_1_strut / 50.0) * 50
 
@@ -182,19 +170,19 @@ M_front_act = (F_1_rounded * 2) * d_arms1
 M_net = M_front_act + M_rear - M_grav
 F_user_kg = (M_net / (L_lid / 1000.0)) / g
 
-st.success("✅ Model úspěšně načten z CAD hodnot!")
+st.success(f"✅ Mrtvý úhel zadní vzpěry optimalizován na cca **{alpha_dead:.1f}°** (kdy je těžiště nad pantem).")
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Přední vzpěra čep (X, Y)", f"[{P0_1[0]:.0f}, {max(0, P0_1[1]):.0f}]")
-col2.metric("Potřebná síla PŘEDNÍ", f"{F_1_rounded:.0f} N", "(1ks)")
+col1.metric("Hlavní vzpěra (1ks)", f"{F_1_rounded:.0f} N")
 if pocet_vzper == 4:
-    col3.metric("Zadní vzpěra čep (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
+    col2.metric("Zadní čep víko (X, Y)", f"[{P0_2[0]:.0f}, {max(0, P0_2[1]):.0f}]")
 else:
-    col3.metric("Zadní vzpěra", "Není")
-col4.metric("Síla do ruky - otevřeno", f"{-F_user_kg[-1]:.1f} kg")
+    col2.metric("Zadní vzpěra", "Není osazena")
+col3.metric("Síla do ruky (Zavřeno)", f"{-F_user_kg[0]:.1f} kg")
+col4.metric("Síla do ruky (Otevřeno)", f"{-F_user_kg[-1]:.1f} kg")
 
 st.divider()
 
-# VIZUALIZACE
+# --- VIZUALIZACE ---
 current_angle = st.slider("🔍 Animace víka", 0.0, float(max_angle), 0.0, step=1.0)
 idx = int((current_angle / max_angle) * 99)
 
@@ -207,31 +195,31 @@ polygon = Polygon(lid_poly_rot, closed=True, fill=True, facecolor='gray', alpha=
 ax1.add_patch(polygon)
 
 P_cur1 = rotate(P0_1, H, current_angle)
-ax1.plot(*B1, 'bs')
+ax1.plot(*B1, 'bs', markersize=6)
 ax1.plot([B1[0], P_cur1[0]], [B1[1], P_cur1[1]], 'b-', lw=4, label=f'Hlavní ({L_act1[idx]:.0f} mm)')
-ax1.plot(*P_cur1, 'bo')
+ax1.plot(*P_cur1, 'bo', markersize=6)
 
 if pocet_vzper == 4:
     P_cur2 = rotate(P0_2, H, current_angle)
-    ax1.plot(*B2, 'rs')
+    ax1.plot(*B2, 'rs', markersize=6)
     ax1.plot([B2[0], P_cur2[0]], [B2[1], P_cur2[1]], 'r-', lw=2, label=f'Asistenční ({L_act2[idx]:.0f} mm)')
-    ax1.plot(*P_cur2, 'ro')
+    ax1.plot(*P_cur2, 'ro', markersize=6)
 
 ax1.set_aspect('equal')
 ax1.set_title(f"Model ({current_angle:.1f}°) - Pant vpravo")
 ax1.legend(loc="lower right")
 ax1.grid(True, linestyle=':')
-max_r = max(L_lid, abs(B_x1), abs(B_y1)) * 1.1
+max_r = max(L_lid, H_lid, abs(B_x1), abs(B_y1)) * 1.1
 ax1.set_xlim(-max_r*0.2, max_r)
-ax1.set_ylim(-max_r*0.5, max_r)
+ax1.set_ylim(-max_r*0.2, max_r*1.1)
 
 ax1.invert_xaxis() 
 
 ax2.plot(angles, -F_user_kg, 'b-', lw=2)
 ax2.axhline(0, color='black', lw=1)
 ax2.plot(current_angle, -F_user_kg[idx], 'ro', markersize=10)
-ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2)
-ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2)
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg >= 0), facecolor='red', alpha=0.2, label="Víko padá")
+ax2.fill_between(angles, 0, -F_user_kg, where=(-F_user_kg < 0), facecolor='green', alpha=0.2, label="Víko drží samo")
 
 if pocet_vzper == 4:
     cross_idx = np.where(np.diff(np.sign(d_arms2)))[0]
@@ -239,9 +227,9 @@ if pocet_vzper == 4:
         dead_ang = angles[cross_idx[0]]
         ax2.axvline(dead_ang, color='r', linestyle='--', label=f'Mrtvý úhel ({dead_ang:.0f}°)')
 
-ax2.set_xlabel("Úhel (°)")
+ax2.set_xlabel("Úhel otevření (°)")
 ax2.set_ylabel("Síla potřebná na víku (kg)")
-ax2.set_title("Síla do ruky")
+ax2.set_title("Profil síly do ruky")
 ax2.legend()
 ax2.grid(True, linestyle=':')
 
