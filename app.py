@@ -1,7 +1,8 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
-from scipy.optimize import fsolve, brentq
+import matplotlib.ticker as ticker
+from scipy.optimize import minimize, brentq
 import time
 
 st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
@@ -24,57 +25,29 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def _pick_physical_root_behind_cg(eqs, guesses, L_lid_mm, H_lid_mm, min_x, margin=0.25, reject_radius=2.0):
-    x_lo, x_hi = -margin * L_lid_mm, (1 + margin) * L_lid_mm
-    y_lo, y_hi = -margin * H_lid_mm, (1 + margin) * H_lid_mm
-
-    candidates = []
-    for g0 in guesses:
-        sol, info, ier, msg = fsolve(eqs, g0, full_output=True)
-        res = np.linalg.norm(info["fvec"])
-        if res > 1e-3:
-            continue
-        if np.hypot(*sol) < reject_radius:
-            continue
-        # Vynucení, aby čep byl za zadanou hranicí (např. za těžištěm)
-        if sol[0] < min_x:
-            continue
-            
-        key = (round(sol[0], 1), round(sol[1], 1))
-        if any(key == c[2] for c in candidates):
-            continue
-        in_env = (x_lo <= sol[0] <= x_hi) and (y_lo <= sol[1] <= y_hi)
-        candidates.append((res, sol, key, in_env))
-
-    if not candidates:
-        return None, np.inf, False
-
-    in_env_candidates = [c for c in candidates if c[3]]
-    if in_env_candidates:
-        best = min(in_env_candidates, key=lambda c: c[0])
-        return best[1], best[0], True
-
-    best = min(candidates, key=lambda c: c[0])
-    return best[1], best[0], False
-
-
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, min_x):
-    def eqs(v):
+    def objective(v):
         lx, ly = v
-        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        # Rozdíl délek vzpěry v zavřeném a otevřeném stavu
+        l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
         Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        return [e1, e2]
+        l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
+        
+        # Penalizace, pokud čep není za požadovanou X souřadnicí
+        penalty = (min_x - lx) ** 2 * 50 if lx < min_x else 0.0
+        return l1**2 + l2**2 + penalty
 
-    # Odhady cílené výhradně do oblasti za těžištěm
-    guesses = [
-        (min_x + 50.0, H_lid_mm * 0.3),
-        (min_x + 100.0, H_lid_mm * 0.5),
-        (min_x + 150.0, H_lid_mm * 0.7),
-        (L_lid_mm * 0.75, H_lid_mm * 0.4),
-        (L_lid_mm * 0.9, H_lid_mm * 0.2)
-    ]
-    return _pick_physical_root_behind_cg(eqs, guesses, L_lid_mm, H_lid_mm, min_x)
+    # Optimalizace s přísnými hranicemi uvnitř obdélníku víka [0, L_lid] x [0, H_lid]
+    res = minimize(
+        objective, 
+        [max(min_x, L_lid_mm * 0.7), H_lid_mm * 0.5], 
+        bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], 
+        method='L-BFGS-B'
+    )
+    
+    if res.success and res.fun < 50.0:
+        return res.x, res.fun, True
+    return None, np.inf, False
 
 
 def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
@@ -91,30 +64,30 @@ def solve_aux_pin_mm(Xb2_mm, Yb2_mm, L02_mm, theta_dead, L_lid_mm, H_lid_mm):
     sq = np.sqrt(disc)
     ux, uy = rotate_mm(Xb2_mm, Yb2_mm, -theta_dead)
 
-    x_lo, x_hi = -0.15 * L_lid_mm, 1.15 * L_lid_mm
-    y_lo, y_hi = -0.15 * H_lid_mm, 1.15 * H_lid_mm
+    x_lo, x_hi = 0.0, L_lid_mm
+    y_lo, y_hi = 0.0, H_lid_mm
 
     sols = []
     for t in (cos_d + sq, cos_d - sq):
         lx, ly = t * ux, t * uy
-        if np.hypot(lx, ly) < 2.0:
+        if not (x_lo <= lx <= x_hi and y_lo <= ly <= y_hi):
             continue
         sols.append((lx, ly))
 
     if not sols:
         return None, np.inf, False, R * abs(sin_d)
 
-    in_env = [s for s in sols if x_lo <= s[0] <= x_hi and y_lo <= s[1] <= y_hi]
-    if in_env:
-        return np.array(in_env[0]), 0.0, True, R * abs(sin_d)
-    return np.array(sols[0]), 0.0, False, R * abs(sin_d)
+    return np.array(sols[0]), 0.0, True, R * abs(sin_d)
 
 
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
     f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
     if f(0.0) * f(theta_max) >= 0:
         return None
-    return brentq(f, 1e-6, theta_max)
+    try:
+        return brentq(f, 1e-6, theta_max)
+    except ValueError:
+        return None
 
 
 # ----------------------------------------------------------------------
@@ -146,7 +119,6 @@ Yb1 = st.sidebar.number_input("Vana Y (mm)", -1000.0, 1000.0, -111.0, 5.0)
 L0_1 = st.sidebar.number_input("Zasunutá délka @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
-# Minimální X pozice čepu na víku (zda musí být za těžištěm)
 min_x_pin = st.sidebar.number_input("Minimální X čepu na víku (za těžištěm)", 0.0, lid_length, 570.0, 10.0)
 
 if use_aux:
@@ -186,7 +158,7 @@ def handle_moment_arm_m(theta):
 pin1, res1, in_env1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, min_x_pin)
 
 if pin1 is None:
-    st.error("⚠️ Pro zadanou pozici čepu za touto X souřadnicí nelze s touto délkou vzpěry najít řešení. Zkuste upravit délku L0_1 nebo posunout limit X.")
+    st.error("⚠️ Pro zadanou pozici čepu nelze umístit vzpěru tak, aby čep ležel uvnitř obrysu víka. Upravte Vana X/Y nebo Zasunutou délku.")
     st.stop()
 
 lx1, ly1 = pin1
@@ -227,7 +199,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (Čep striktně za těžištěm)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (Čep striktně na víku)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
