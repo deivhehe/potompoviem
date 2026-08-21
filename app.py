@@ -172,7 +172,6 @@ def Xcg_m(theta):
 def Tg(theta):
     return -lid_mass * G * Xcg_m(theta)
 
-# Opravené rameno síly madla (kolmá vzdálenost linie tahání od pantu)
 def handle_moment_arm_m(theta):
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     r = np.hypot(hx, hy)
@@ -222,7 +221,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (Opravený model)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
@@ -280,7 +279,7 @@ def draw_geometry_mm(ax, theta):
 
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
     ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
-    ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)  # Opraveno Yb1
+    ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
     ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
 
     if use_aux and pin2 is not None:
