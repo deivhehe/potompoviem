@@ -11,7 +11,7 @@ st.set_page_config(page_title="Návrh plynových vzpěr víka", layout="wide")
 G = 9.81  # m/s^2
 
 # ----------------------------------------------------------------------
-# Pomocné fyzikální funkce (pracují v milimetrech pro geometrii)
+# Pomocné fyzikální funkce
 # ----------------------------------------------------------------------
 def rotate_mm(lx, ly, theta):
     c, s = np.cos(theta), np.sin(theta)
@@ -222,7 +222,6 @@ c4.metric(
     "pomáhá zavírat" if f_max_val < 0 else "tlačí ven",
 )
 
-# Upozornění, pokud by v max úhlu síla byla moc velká (přes 200 N do zavírání)
 if f_max_val < -200:
     st.warning("⚠️ **Pozor:** V maximálním otevření je síla pro zavírání velmi vysoká (víko chce silně vystřelit ven). Zkuste posunout vanu hlavní vzpěry dál nebo upravit geometrii, aby byla síla `@max` blíž k nule (např. -30 až -100 N).")
 
@@ -244,7 +243,7 @@ else:
 st.divider()
 
 # ----------------------------------------------------------------------
-# Vykreslení geometrie
+# Vykreslení geometrie (s osou Y do -250 mm)
 # ----------------------------------------------------------------------
 def draw_geometry_mm(ax, theta):
     ax.clear()
@@ -275,13 +274,14 @@ def draw_geometry_mm(ax, theta):
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
-    ax.set_ylim(-150, max(lid_height * 1.5, 300))
+    # Nastaveno Y od -250 mm nahoru
+    ax.set_ylim(-250, max(lid_height * 1.5, 300))
     
     ax.set_aspect("equal")
     ax.invert_xaxis()
     
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(100)) # hustší mřížka pro Y
     
     ax.tick_params(axis='both', labelsize=8)
     for label in ax.get_xticklabels():
@@ -332,11 +332,16 @@ if animate:
         th = np.radians(deg)
         draw_geometry_mm(ax1, th)
         draw_force_profile(ax2, th)
+        # Zarovnání okrajů pro absolutně stejnou velikost
+        fig1.tight_layout()
+        fig2.tight_layout()
         placeholder1.pyplot(fig1)
         placeholder2.pyplot(fig2)
         time.sleep(0.04)
 else:
     draw_geometry_mm(ax1, theta_disp)
     draw_force_profile(ax2, theta_disp)
+    fig1.tight_layout()
+    fig2.tight_layout()
     col_geo.pyplot(fig1)
     col_force.pyplot(fig2)
