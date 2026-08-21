@@ -139,10 +139,9 @@ config = st.sidebar.radio("Typ", ["2× hlavní vzpěra", "2× hlavní + 2× pomo
 use_aux = config.startswith("2× hlavní +")
 
 st.sidebar.subheader("Hlavní vzpěra (1 ks)")
-auto_optimize_van = st.sidebar.checkbox("🤖 Automaticky najít pozici vany hlavní vzpěry", value=True)
+auto_optimize_van = st.sidebar.checkbox("🤖 Přísně optimalizovat vanu pro malé @max (< 150 N)", value=True)
 
 if auto_optimize_van:
-    st.sidebar.info("Pozice vany X/Y bude vypočtena automaticky pro optimální sílu @max.")
     Xb1_init, Yb1_init = 500.0, -100.0
 else:
     Xb1_init = st.sidebar.number_input("Vana X (mm)", -1000.0, 3000.0, 585.0, 5.0)
@@ -167,7 +166,7 @@ theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, the
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
 # ----------------------------------------------------------------------
-# Výpočty & Optimalizace vany
+# Výpočty & Přesná optimalizace vany
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main = 2
@@ -185,43 +184,54 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-# Optimalizační smyčka pro nalezení ideální vany Xb1, Yb1
 if auto_optimize_van:
     def objective(vars_v):
         xb, yb = vars_v
         pin, _, valid = solve_main_pin_mm(xb, yb, L0_1, S1, theta_max, lid_length, lid_height)
         if not valid or pin is None:
-            return 1e6
+            return 1e9
         lx, ly = pin
         d1_0 = signed_moment_arm_mm(xb, yb, lx, ly, 0.0)
         if abs(d1_0) < 1e-6:
-            return 1e6
+            return 1e9
         
         h_arm_0 = handle_moment_arm_m(0.0)
-        if use_aux:
-            # odhad pro pomocnou
-            pass
         
-        # Výpočet síly hlavní vzpěry pro start
+        # Pomocná vzpěra vliv
+        theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
+        pin2_opt = None
+        n_a = 2
+        if use_aux and theta_dead is not None:
+            pin2_opt, _, _, _ = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
+            
+        d2_0 = signed_moment_arm_mm(Xb2, Yb2, pin2_opt[0], pin2_opt[1], 0.0) if (use_aux and pin2_opt is not None) else 0.0
+        moment_from_aux_0 = (n_a * d2_0 * F_aux_catalog) if use_aux and pin2_opt is not None else 0.0
+        
         moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
-        f_m = moment_sum_needed / (n_main * d1_0)
-        if f_m < 0 or f_m > 3000: # limit síly vzpěry
-            return 1e6
+        f_m = (moment_sum_needed - moment_from_aux_0) / (n_main * d1_0)
+        if f_m < 0 or f_m > 3000:
+            return 1e9
             
         # Síla @max
         h_arm_max = handle_moment_arm_m(theta_max)
         ts_m = n_main * f_m * signed_moment_arm_mm(xb, yb, lx, ly, theta_max)
         ts_a = 0.0
-        if use_aux:
-            # zjednodušení pro optimalizaci
-            pass
+        if use_aux and pin2_opt is not None:
+            ts_a = n_a * F_aux_catalog * signed_moment_arm_mm(Xb2, Yb2, pin2_opt[0], pin2_opt[1], theta_max)
+            
         f_max = -(Tg(theta_max) + ts_m + ts_a) / h_arm_max
         
-        # Cíl: síla @max co nejblíže -100 N (případně penalty)
-        return abs(f_max - (-100.0))
+        # CÍL: Chtíme, aby f_max bylo kolem -80 N (rozmezí -50 až -120 N)
+        # Pokud je f_max kladné nebo moc hluboko v záporu (-600), penalizujeme to
+        penalty = 0.0
+        if f_max > 0:
+            penalty += f_max * 10  # nesmí tlačit ven
+        elif f_max < -150:
+            penalty += abs(f_max - (-80)) * 5 # moc velké táhnutí dolů
+            
+        return abs(f_max - (-80.0)) + penalty
 
-    # Spuštění optimalizace v malém rozsahu kolem rámu
-    res_opt = minimize(objective, [Xb1_init, Yb1_init], method='Nelder-Mead', options={'maxiter': 300})
+    res_opt = minimize(objective, [Xb1_init, Yb1_init], method='Nelder-Mead', options={'maxiter': 400})
     if res_opt.success:
         Xb1, Yb1 = res_opt.x
     else:
@@ -239,18 +249,18 @@ lx1, ly1 = pin1
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 
 pin2 = None
+n_aux = 2
 if use_aux:
     if theta_dead is not None:
         pin2, res2, in_env2, min_L02 = solve_aux_pin_mm(Xb2, Yb2, L0_2, theta_dead, lid_length, lid_height)
         if pin2 is not None:
             lx2, ly2 = pin2
-            n_aux = 2
 
 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
 h_arm_0 = handle_moment_arm_m(0.0)
 
 if use_aux and pin2 is not None:
-    d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, 0.0)
+    d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta_dead)
     moment_sum_needed = -(Tg(0.0) + target_open_N_input * h_arm_0)
     moment_from_aux = n_aux * d2_0 * F_aux_catalog
     denom = n_main * d1_0
@@ -273,7 +283,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (s automatickým hledáním vany)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (Přísná optimalizace @max)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Vypočtená vana X / Y", f"{Xb1:.1f} / {Yb1:.1f} mm")
