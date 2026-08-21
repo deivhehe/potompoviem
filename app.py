@@ -28,13 +28,11 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     def objective(v):
         lx, ly = v
-        # Podmínka délky vzpěry v zavřeném stavu (0°) a maximálním úhlu
         l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
         Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
         l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return l1**2 + l2**2
 
-    # Hledáme kdekoli uvnitř obdélníku víka [0, L_lid_mm] x [0, H_lid_mm]
     res = minimize(
         objective, 
         [L_lid_mm * 0.4, H_lid_mm * 0.4], 
@@ -126,7 +124,8 @@ if use_aux:
     F_aux_catalog = st.sidebar.number_input("Katalogová síla 1 ks pomocné vzpěry (N)", 50.0, 2000.0, 500.0, 10.0)
 
 st.sidebar.header("6) Cílové síly do ruky")
-target_open_N_input = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 175.0, 5.0)
+target_open_N_input = st.sidebar.slider("Síla na otevření @0° (N)", 50.0, 300.0, 160.0, 5.0)
+target_close_N_input = st.sidebar.slider("Cílová síla na zavření @max (N)", -300.0, 0.0, -200.0, 5.0)
 
 st.sidebar.header("7) Náhled úhlu")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
@@ -195,7 +194,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr výklopného víka (Cílová síla 150-200N)")
+st.title("🔧 Návrh plynových vzpěr výklopného víka (Regulace sil zavírání)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
