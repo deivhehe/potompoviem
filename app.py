@@ -14,7 +14,7 @@ H_lid = st.sidebar.number_input("Výška/Tloušťka víka (mm)", value=150.0, st
 C_x = st.sidebar.number_input("Těžiště X (mm od pantu)", value=500.0, step=10.0)
 C_y = st.sidebar.number_input("Těžiště Y (mm od pantu)", value=75.0, step=10.0)
 C_0 = np.array([C_x, C_y])
-max_angle = st.sidebar.slider("Max. úhel otevření (°)", 45, 110, value=80)
+max_angle = st.slider("Max. úhel otevření (°)", 45, 110, value=80)
 
 pocet_vzper_radio = st.sidebar.radio("Konfigurace vzpěr", ["Pouze 2 hlavní", "2 hlavní + 2 pomocné (zadní)"], index=1)
 pocet_vzper = 4 if "pomocné" in pocet_vzper_radio else 2
@@ -62,29 +62,15 @@ def get_lid_mount(B, L_closed, stroke, angle_open):
     valid = [p for p in candidates if -50 <= p[0] <= L_lid * 1.5 and p[1] >= -50]
     return max(valid, key=lambda p: p[0]) if valid else candidates[0]
 
-# 1. Výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
+# Výpočet úhlu, kdy těžiště přechází přes svislou osu pantu (X_CG_global == 0)
 angles_fine = np.linspace(0, 90, 1000)
 cg_x_coords = np.array([rotate(C_0, a)[0] for a in angles_fine])
-# Hledáme úhel, kde X-ová souřadnice těžiště mění znaménko (nebo je nejblíže nule)
 cg_zero_idx = np.argmin(np.abs(cg_x_coords))
 alpha_cg_over = angles_fine[cg_zero_idx]
 
-# 2. Výpočet čepů na víku
+# Výpočet čepů na víku tak, aby respektovaly zadanou zasunutou délku v 0°
 P1 = get_lid_mount(B1, L_closed1, stroke1, max_angle)
-
-if pocet_vzper == 4:
-    # Pomocná vzpěra: v okamžiku, kdy těžiště přechází přes pant (alpha_cg_over), 
-    # musí její osa procházet pantem [0,0]. Z toho přesně dopočteme P2.
-    v_dir = np.array([0.0, 0.0]) - B2
-    v_len = np.linalg.norm(v_dir)
-    if v_len > 0:
-        u_dir = v_dir / v_len
-        P_dead_global = np.array([0.0, 0.0]) + u_dir * L_closed2
-        P2 = rotate(P_dead_global, -alpha_cg_over)
-    else:
-        P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle)
-else:
-    P2 = np.array([0.0, 0.0])
+P2 = get_lid_mount(B2, L_closed2, stroke2, max_angle) if pocet_vzper == 4 else np.array([0.0, 0.0])
 
 angles = np.linspace(0, max_angle, 100)
 M_grav = m * 9.81 * (np.array([rotate(C_0, a)[0] for a in angles])) / 1000.0
