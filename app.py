@@ -25,7 +25,7 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 
-def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind_hinge=False):
     def eqs(v):
         lx, ly = v
         e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
@@ -33,17 +33,36 @@ def solve_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
         return [e1, e2]
 
+    # Rozšíříme počáteční odhady i pro prostor za pantem (negativní X), pokud je povolen
+    x_min_guess = -300.0 if allow_behind_hinge else 0.0
+    
     guesses = [
         (L_lid_mm * 0.5, H_lid_mm * 0.5),
-        (L_lid_mm * 0.75, H_lid_mm * 0.3),
-        (L_lid_mm * 0.3, H_lid_mm * 0.7),
-        (L_lid_mm * 0.9, H_lid_mm * 0.2)
+        (-100.0, H_lid_mm * 0.5),
+        (-50.0, 50.0),
+        (L_lid_mm * 0.2, H_lid_mm * 0.8)
     ]
     
     for g0 in guesses:
         sol, info, ier, _ = fsolve(eqs, g0, full_output=True)
         if ier == 1 and np.linalg.norm(info["fvec"]) < 1e-3:
-            return sol, True
+            lx, ly = sol
+            if allow_behind_hinge or lx >= 0.0:
+                return sol, True
+                
+    # Záložní optimalizační hledání pro případ složitější vazby
+    def obj(v):
+        lx, ly = v
+        e1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
+        e2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
+        return e1**2 + e2**2
+
+    x_bounds = (-400.0 if allow_behind_hinge else 0.0, L_lid_mm)
+    res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-500, H_lid_mm + 500)], method='L-BFGS-B')
+    if res.success and res.fun < 1.0:
+        return res.x, True
+
     return None, False
 
 
@@ -87,7 +106,7 @@ L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
 if use_aux:
-    st.sidebar.header("7) Pomocná vzpěra")
+    st.sidebar.header("7) Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
     L0_2 = st.sidebar.number_input("Zasunutá délka pomocné @0° (mm)", 30.0, 2000.0, 561.0, 5.0)
@@ -104,17 +123,17 @@ theta_max = np.radians(theta_max_deg)
 n_main = 2
 n_aux = 2
 
-# Výpočet pozic čepů na víku
-pin1, ok1 = solve_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+# Výpočet pozic čepů na víku (hlavní je striktně na víku, pomocná může být i na konzolce za pantem)
+pin1, ok1 = solve_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height, allow_behind_hinge=False)
 if not ok1:
     st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu.")
     st.stop()
 lx1, ly1 = pin1
 
 if use_aux:
-    pin2, ok2 = solve_pin_mm(Xb2, Yb2, L0_2, S2, theta_max, lid_length, lid_height)
+    pin2, ok2 = solve_pin_mm(Xb2, Yb2, L0_2, S2, theta_max, lid_length, lid_height, allow_behind_hinge=True)
     if not ok2:
-        st.error("⚠️ Pro zadané parametry pomocné vzpěry nelze geometricky vyřešit pozici čepu.")
+        st.error("⚠️ Pro zadané parametry pomocné vzpěry nelze geometricky vyřešit pozici čepu (ani na konzolce za pantem).")
         st.stop()
     lx2, ly2 = pin2
 else:
@@ -177,7 +196,7 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Metrický panel
 # ----------------------------------------------------------------------
-st.title("🔧 Návrh plynových vzpěr víka (Přímý výpočet geometrie)")
+st.title("🔧 Návrh plynových vzpěr víka (vč. konzolky za pantem)")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
@@ -193,7 +212,7 @@ c5, c6, c7, c8 = st.columns(4)
 c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
 c6.metric("Čep na víku – hlavní Y", f"{ly1:.1f} mm")
 if use_aux:
-    c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm")
+    c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm", "mimo víko (konzolka)" if lx2 < 0 else "")
     c8.metric("Čep na víku – pomocná Y", f"{ly2:.1f} mm")
 else:
     c7.metric("Čep na víku – pomocná X", "—")
@@ -238,7 +257,7 @@ def draw_geometry_mm(ax, theta):
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
     max_dim = max(lid_length, lid_height)
-    ax.set_xlim(-max_dim * 0.15, lid_length * 1.2)
+    ax.set_xlim(-max_dim * 0.25, lid_length * 1.2)
     ax.set_ylim(-400, max(lid_height * 1.5, 300))
     ax.set_box_aspect(1)
     ax.invert_xaxis()
