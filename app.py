@@ -154,13 +154,6 @@ if app_mode == "Kontrola existujícího řešení":
         if use_aux:
             custom_f_aux = st.sidebar.number_input("Jmenovitá síla F1 (1 ks pomocné)", 10.0, 10000.0, 325.0, 10.0)
 
-if not use_custom_forces:
-    if use_aux:
-        st.sidebar.header("6) Poměr sil vzpěr")
-        force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 67, 1)
-    else:
-        force_ratio = 50
-
 st.sidebar.header("7) Hlavní vzpěra")
 Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
 Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0)
@@ -283,13 +276,12 @@ def solve_forces():
     if use_custom_forces:
         return custom_f_main, (custom_f_aux if use_aux else 0.0)
 
+    # Čistý fyzikální výpočet ideálního poměru sil podle geometrie (žádný zlobivý slider)
     if use_aux:
-        def objective(total_scale):
-            if total_scale < 20 or total_scale > 40000:
+        def objective(vars_forces):
+            Fm_nom, Fa_nom = vars_forces
+            if Fm_nom < 10 or Fa_nom < 10:
                 return 1e12
-            # Správné mapování: posunem slideru doprava (vyšší force_ratio) roste podíl hlavní vzpěry
-            Fm_nom = total_scale * (force_ratio / 100.0)
-            Fa_nom = total_scale * ((100.0 - force_ratio) / 100.0)
             
             err = 0.0
             for th in np.linspace(0, theta_max, 5):
@@ -301,9 +293,10 @@ def solve_forces():
                 err += (moment_vzpěr - moment_tíže)**2
             return err
 
-        res = minimize(objective, [1000.0], bounds=[(20, 40000)], method='L-BFGS-B')
-        total_opt = res.x[0] if res.success else 1000.0
-        return total_opt * (force_ratio / 100.0), total_opt * ((100.0 - force_ratio) / 100.0)
+        res = minimize(objective, [500.0, 300.0], bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
+        if res.success:
+            return res.x[0], res.x[1]
+        return 500.0, 300.0
     else:
         def objective_single(Fm_nom):
             if Fm_nom[0] < 10:
