@@ -8,7 +8,6 @@ st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layou
 
 G = 9.81  # m/s^2
 
-# Přesné typy vzpěr a jejich nárůst síly (progrese) dle tvého zadání
 STRUT_TYPES = {
     "Typ G3/8 (nárůst 30 %)": 0.30,
     "Typ G4/12 (nárůst 25 %)": 0.25,
@@ -122,7 +121,6 @@ progression_rate = STRUT_TYPES[strut_type_key]
 if strut_type_key == "Vlastní koeficient nárůstu":
     progression_rate = st.sidebar.slider("Vlastní nárůst síly (%)", 0.0, 1.0, 0.35, 0.05)
 
-# Přepínač pro vlastní sílu v režimu kontroly
 use_custom_forces = False
 if app_mode == "Kontrola existujícího řešení":
     st.sidebar.header("6) Síly vzpěr")
@@ -161,9 +159,9 @@ if use_aux:
         lx2_in = st.sidebar.number_input("Čep na víku X pomocná (mm)", -500.0, 3000.0, 260.0, 5.0)
         ly2_in = st.sidebar.number_input("Čep na víku Y pomocná (mm)", -500.0, 1000.0, 308.0, 5.0)
 
-st.sidebar.header("9) Náhled")
-theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
-animate = st.sidebar.button("▶️ Animovat otevírání")
+st.sidebar.header("9) Náhled a animace")
+theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled / ruční posun (°)", 0, theta_max_deg, 0)
+animate = st.sidebar.checkbox("▶️ Spustit plynulou animaci", value=False)
 
 # ----------------------------------------------------------------------
 # Výpočetní jádro (sdílené)
@@ -326,8 +324,6 @@ common_adjust = {'left': 0.2, 'bottom': 0.2, 'right': 0.95, 'top': 0.9}
 fig1.subplots_adjust(**common_adjust)
 fig2.subplots_adjust(**common_adjust)
 
-theta_disp = np.radians(theta_disp_deg)
-
 def draw_geometry_mm(ax, theta):
     ax.clear()
     corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
@@ -403,6 +399,7 @@ if animate:
         placeholder2.pyplot(fig2)
         time.sleep(0.04)
 else:
+    theta_disp = np.radians(theta_disp_deg)
     draw_geometry_mm(ax1, theta_disp)
     draw_force_profile(ax2, theta_disp)
     col_geo.pyplot(fig1)
