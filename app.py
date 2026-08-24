@@ -172,7 +172,8 @@ if use_aux:
     st.sidebar.header("Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 590.0, 5.0)
+    # Možnost ručně zadat reálnou délku v zavřeném stavu, aby odpovídala realitě (např. 478 mm)
+    L2_0_real_input = st.sidebar.number_input("Reálná délka pomocné vzpěry @0° (mm)", 100.0, 2000.0, 478.0, 1.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 120.0, 5.0)
 
 # Volitelná ruční úprava čepů
@@ -205,13 +206,13 @@ pin_def, ok_def = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, l
 default_lx1, default_ly1 = pin_def if ok_def else (lid_length * 0.5, lid_height * 0.5)
 
 if use_aux:
-    pin2, ok2 = solve_pin_custom(Xb2, Yb2, L_min_2, S2, theta_max, lid_length, lid_height, allow_behind=True)
+    pin2, ok2 = solve_pin_custom(Xb2, Yb2, 300.0, 120.0, theta_max, lid_length, lid_height, allow_behind=True)
     default_lx2, default_ly2 = pin2 if ok2 else (100.0, 100.0)
 else:
     default_lx2, default_ly2 = 0.0, 0.0
 
 # ----------------------------------------------------------------------
-# Určení pozic čepů (hlavní X slider s Y dopočtem, pomocná X i Y slidery)
+# Určení pozic čepů
 # ----------------------------------------------------------------------
 if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
@@ -235,18 +236,19 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2 = col_p1.slider("Čep pomocné vzpěry – X (mm)", min_value=-400.0, max_value=float(lid_length + 200.0), value=float(default_lx2), step=1.0)
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
-        # Reálné délky pomocné vzpěry vypočtené z aktuální pozice čepů
-        cur_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
-        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
-        cur_L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
+        # Pro výpočet momentů a délky použijeme zadanou reálnou délku @0° jako základ
+        Xp2_max_geom, Yp2_max_geom = rotate_mm(lx2, ly2, theta_max)
+        geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        geom_L2_max = np.sqrt((Xp2_max_geom - Xb2)**2 + (Yp2_max_geom - Yb2)**2)
         
-        st.info(f"💡 Pomocná vzpěra (reálná dle čepu): délka v zavřeném stavu (@0°) = **{cur_L2_0:.1f} mm** | délka v max. otevření (@max) = **{cur_L2_max:.1f} mm** | reálný zdvih = **{abs(cur_L2_max - cur_L2_0):.1f} mm**")
+        st.info(f"💡 Pomocná vzpěra: zadaná délka v zavřeném stavu = **{L2_0_real_input:.1f} mm** | geometrická vzdálenost čepů = **{geom_L2_0:.1f} mm**")
     else:
         lx2, ly2 = 0.0, 0.0
 else:
     st.title(f"🔧 {app_mode}")
     lx1, ly1 = default_lx1, default_ly1
     lx2, ly2 = default_lx2, default_ly2
+    L2_0_real_input = 478.0
 
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
@@ -271,16 +273,15 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     Fa_actual = 0.0
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
-        L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        # Použijeme reálné rozpětí délek podle aktuální pozice čepu
-        L2_0_real = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
-        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
-        L2_max_real = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
+        # Efektivní délka pomocné vzpěry v libovolném úhlu vychází ze zadané počáteční délky L2_0_real_input a změny geometrické vzdálenosti
+        geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
+        delta_L = geom_L2_th - geom_L2_0
+        L2_current = L2_0_real_input + delta_L
         
-        L_min_effective = min(L2_0_real, L2_max_real)
-        S2_real = max(abs(L2_max_real - L2_0_real), 10.0)
+        L2_max_real = L2_0_real_input + (np.sqrt((rotate_mm(lx2, ly2, theta_max)[0] - Xb2)**2 + (rotate_mm(lx2, ly2, theta_max)[1] - Yb2)**2) - geom_L2_0)
         
-        Fa_actual = get_strut_force_at_length(L2, L_min_effective, S2_real, Fa_nom, progression_rate_aux)
+        Fa_actual = get_strut_force_at_length(L2_current, min(L2_0_real_input, L2_max_real), S2, Fa_nom, progression_rate_aux)
 
     return Fm_actual, Fa_actual
 
