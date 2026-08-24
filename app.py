@@ -172,7 +172,6 @@ if use_aux:
     st.sidebar.header("Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    # Možnost ručně zadat reálnou délku v zavřeném stavu, aby odpovídala realitě (např. 478 mm)
     L2_0_real_input = st.sidebar.number_input("Reálná délka pomocné vzpěry @0° (mm)", 100.0, 2000.0, 478.0, 1.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 120.0, 5.0)
 
@@ -236,11 +235,7 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2 = col_p1.slider("Čep pomocné vzpěry – X (mm)", min_value=-400.0, max_value=float(lid_length + 200.0), value=float(default_lx2), step=1.0)
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
-        # Pro výpočet momentů a délky použijeme zadanou reálnou délku @0° jako základ
-        Xp2_max_geom, Yp2_max_geom = rotate_mm(lx2, ly2, theta_max)
         geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
-        geom_L2_max = np.sqrt((Xp2_max_geom - Xb2)**2 + (Yp2_max_geom - Yb2)**2)
-        
         st.info(f"💡 Pomocná vzpěra: zadaná délka v zavřeném stavu = **{L2_0_real_input:.1f} mm** | geometrická vzdálenost čepů = **{geom_L2_0:.1f} mm**")
     else:
         lx2, ly2 = 0.0, 0.0
@@ -273,7 +268,6 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     Fa_actual = 0.0
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
-        # Efektivní délka pomocné vzpěry v libovolném úhlu vychází ze zadané počáteční délky L2_0_real_input a změny geometrické vzdálenosti
         geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
         delta_L = geom_L2_th - geom_L2_0
@@ -289,41 +283,41 @@ def solve_forces():
     if use_custom_forces:
         return custom_f_main, (custom_f_aux if use_aux else 0.0)
 
-    def objective(forces):
-        if use_aux:
-            Fm_nom, Fa_nom = forces
-            if Fm_nom < 10 or Fa_nom < 10:
-                return 1e12
-            
-            total_f = Fm_nom + Fa_nom
-            ratio_actual = Fm_nom / (total_f + 1e-6)
-            ratio_target = force_ratio / 100.0
-            ratio_penalty = (ratio_actual - ratio_target)**2 * 1e8
-        else:
-            Fm_nom = forces[0]
-            if Fm_nom < 10:
-                return 1e12
-            Fa_nom = 0.0
-            ratio_penalty = 0.0
-        
-        err = 0.0
-        for th in np.linspace(0, theta_max, 5):
-            d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
-            Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
-            if use_aux:
-                d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th)
-                moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
-            else:
-                moment_vzpěr = n_main * Fm_act * d1
-            moment_tíže = -Tg(th)
-            err += (moment_vzpěr - moment_tíže)**2
-        return err + ratio_penalty
-
+    # Opravený výpočet podle zvoleného poměru (force_ratio % pro hlavní, zbytek pro pomocnou)
     if use_aux:
-        res = minimize(objective, [500.0, 500.0], bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
-        return (res.x[0], res.x[1]) if res.success else (500.0, 500.0)
+        def objective(total_scale):
+            if total_scale < 20 or total_scale > 40000:
+                return 1e12
+            Fm_nom = total_scale * (force_ratio / 100.0)
+            Fa_nom = total_scale * ((100.0 - force_ratio) / 100.0)
+            
+            err = 0.0
+            for th in np.linspace(0, theta_max, 5):
+                d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+                d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th)
+                Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
+                moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
+                moment_tíže = -Tg(th)
+                err += (moment_vzpěr - moment_tíže)**2
+            return err
+
+        res = minimize(objective, [1000.0], bounds=[(20, 40000)], method='L-BFGS-B')
+        total_opt = res.x[0] if res.success else 1000.0
+        return total_opt * (force_ratio / 100.0), total_opt * ((100.0 - force_ratio) / 100.0)
     else:
-        res = minimize(objective, [500.0], bounds=[(10, 20000)], method='L-BFGS-B')
+        def objective_single(Fm_nom):
+            if Fm_nom[0] < 10:
+                return 1e12
+            err = 0.0
+            for th in np.linspace(0, theta_max, 5):
+                d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+                Fm_act, _ = get_struts_forces_at_angle(th, Fm_nom[0], 0.0)
+                moment_vzpěr = n_main * Fm_act * d1
+                moment_tíže = -Tg(th)
+                err += (moment_vzpěr - moment_tíže)**2
+            return err
+
+        res = minimize(objective_single, [500.0], bounds=[(10, 20000)], method='L-BFGS-B')
         return (res.x[0], 0.0) if res.success else (500.0, 0.0)
 
 F_main, F_aux = solve_forces()
