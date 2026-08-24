@@ -276,7 +276,6 @@ def solve_forces():
     if use_custom_forces:
         return custom_f_main, (custom_f_aux if use_aux else 0.0)
 
-    # Čistý fyzikální výpočet ideálního poměru sil podle geometrie (žádný zlobivý slider)
     if use_aux:
         def objective(vars_forces):
             Fm_nom, Fa_nom = vars_forces
@@ -379,9 +378,22 @@ def draw_geometry_mm(ax, theta):
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=3.5, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=3.5, zorder=5)
 
-    max_dim = max(lid_length, lid_height)
-    ax.set_xlim(min(-600.0, -max_dim * 0.25), max(lid_length * 1.2, 600.0))
-    ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
+    # Automatické sjednocení měřítka os tak, aby X odpovídalo vizuálně Y (1:1 poměr)
+    all_x = xs + [0, Xb1] + ([Xb2] if use_aux else []) + ([Xp1] if 'Xp1' in locals() else [])
+    all_y = ys + [0, Yb1] + ([Yb2] if use_aux else []) + ([Yp1] if 'Yp1' in locals() else [])
+    
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+    
+    range_x = max_x - min_x
+    range_y = max_y - min_y
+    max_range = max(range_x, range_y, 800.0) # minimální rozsah
+    
+    mid_x = (min_x + max_x) / 2.0
+    mid_y = (min_y + max_y) / 2.0
+    
+    ax.set_xlim(mid_x - max_range * 0.6, mid_x + max_range * 0.6)
+    ax.set_ylim(mid_y - max_range * 0.6, mid_y + max_range * 0.6)
     
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
