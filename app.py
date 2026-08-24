@@ -3,6 +3,8 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve, brentq, minimize
 import time
+import tempfile
+from fpdf import FPDF
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
@@ -179,7 +181,6 @@ if pause_clicked:
 if 'is_playing' not in st.session_state:
     st.session_state.is_playing = False
 
-# Slider spojený se session_state, aby se mohl posouvat automaticky i ručně
 theta_disp_deg = st.sidebar.slider(
     "Úhel otevření (°)", 
     0.0, 
@@ -188,7 +189,6 @@ theta_disp_deg = st.sidebar.slider(
     step=1.0
 )
 
-# Pokud uživatel pohnul sliderem ručně, aktualizujeme stav
 if theta_disp_deg != st.session_state.anim_deg:
     st.session_state.anim_deg = theta_disp_deg
 
@@ -417,20 +417,84 @@ def draw_force_profile(ax, theta_marker=None):
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
-# Vykreslení aktuálního stavu
 theta_disp = np.radians(st.session_state.anim_deg)
 draw_geometry_mm(ax1, theta_disp)
 draw_force_profile(ax2, theta_disp)
 col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
+# ----------------------------------------------------------------------
+# Generování PDF protokolu
+# ----------------------------------------------------------------------
+st.sidebar.divider()
+st.sidebar.header("📄 Export protokolu")
+
+class PDFReport(FPDF):
+    def header(self):
+        self.set_font("Helvetica", "B", 14)
+        self.cell(0, 10, "Protokol návrhu plynových vzpěr víka", 0, 1, "C")
+        self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.cell(0, 10, f"Strana {self.page_no()}", 0, 0, "C")
+
+if st.sidebar.button("📄 Vygenerovat PDF protokol"):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Uložení grafů do dočasných souborů
+        fig1.savefig(f"{tmpdir}/geo.png", dpi=150)
+        fig2.savefig(f"{tmpdir}/force.png", dpi=150)
+
+        pdf = PDFReport()
+        pdf.add_page()
+        pdf.set_font("Helvetica", "", 10)
+
+        # Sekce: Vstupní parametry
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "1. Zadané parametry", 0, 1)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, f"Režim: {app_mode}", 0, 1)
+        pdf.cell(0, 6, f"Rozměry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg", 0, 1)
+        pdf.cell(0, 6, f"Těžiště (X, Y): {cg_x_mm} mm, {cg_y_mm} mm | Madlo (X, Y): {handle_x_mm} mm, {handle_y_mm} mm", 0, 1)
+        pdf.cell(0, 6, f"Max. úhel otevření: {theta_max_deg} deg | Uspořádání: {config_type} ({strut_type_key})", 0, 1)
+        pdf.ln(4)
+
+        # Sekce: Výsledky
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "2. Výsledky výpočtu a pozice čepů", 0, 1)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, f"Hlavní vzpěra – Vana (X, Y): {Xb1} mm, {Yb1} mm | Čep na víku (X, Y): {lx1:.1f} mm, {ly1:.1f} mm", 0, 1)
+        pdf.cell(0, 6, f"Jmenovitá síla hlavní vzpěry (1 ks): {F_main:.0f} N", 0, 1)
+        if use_aux:
+            pdf.cell(0, 6, f"Pomocná vzpěra – Vana (X, Y): {Xb2} mm, {Yb2} mm | Čep na víku (X, Y): {lx2:.1f} mm, {ly2:.1f} mm", 0, 1)
+            pdf.cell(0, 6, f"Jmenovitá síla pomocné vzpěry (1 ks): {F_aux:.0f} N", 0, 1)
+        
+        pdf.cell(0, 6, f"Síla na madlu k otevření (@0°): {F_hand(0.0):.1f} N", 0, 1)
+        pdf.cell(0, 6, f"Síla na madlu k zavření (@max): {f_max_val:.1f} N", 0, 1)
+        if theta_dead is not None:
+            pdf.cell(0, 6, f"Mrtvý bod: {np.degrees(theta_dead):.1f}°", 0, 1)
+        pdf.ln(4)
+
+        # Vložení grafů
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "3. Grafické znázornění", 0, 1)
+        pdf.image(f"{tmpdir}/geo.png", x=15, w=85)
+        pdf.image(f"{tmpdir}/force.png", x=110, y=pdf.get_y()-45, w=85)
+
+        pdf_data = pdf.output(dest='S').encode('latin1')
+        
+        st.sidebar.download_button(
+            label="📥 Stáhnout hotové PDF",
+            data=pdf_data,
+            file_name="protokol_plynove_vzpery.pdf",
+            mime="application/pdf"
+        )
+        st.sidebar.success("✅ Protokol je připraven ke stažení!")
+
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
     if st.session_state.anim_deg >= theta_max_deg:
         st.session_state.anim_deg = 0.0
     else:
-        st.session_state.anim_deg += 2.0
-        if st.session_state.anim_deg > theta_max_deg:
-            st.session_state.anim_deg = float(theta_max_deg)
-    time.sleep(0.04)
-    st.rerun()
+    ...
