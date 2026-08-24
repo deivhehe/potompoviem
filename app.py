@@ -442,7 +442,6 @@ class PDFReport(FPDF):
 
 if st.sidebar.button("📄 Vygenerovat PDF protokol"):
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Uložení grafů do dočasných souborů
         fig1.savefig(f"{tmpdir}/geo.png", dpi=150)
         fig2.savefig(f"{tmpdir}/force.png", dpi=150)
 
@@ -450,7 +449,6 @@ if st.sidebar.button("📄 Vygenerovat PDF protokol"):
         pdf.add_page()
         pdf.set_font("Helvetica", "", 10)
 
-        # Sekce: Vstupní parametry
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(0, 8, "1. Zadané parametry", 0, 1)
         pdf.set_font("Helvetica", "", 10)
@@ -460,7 +458,6 @@ if st.sidebar.button("📄 Vygenerovat PDF protokol"):
         pdf.cell(0, 6, f"Max. úhel otevření: {theta_max_deg} deg | Uspořádání: {config_type} ({strut_type_key})", 0, 1)
         pdf.ln(4)
 
-        # Sekce: Výsledky
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(0, 8, "2. Výsledky výpočtu a pozice čepů", 0, 1)
         pdf.set_font("Helvetica", "", 10)
@@ -476,7 +473,6 @@ if st.sidebar.button("📄 Vygenerovat PDF protokol"):
             pdf.cell(0, 6, f"Mrtvý bod: {np.degrees(theta_dead):.1f}°", 0, 1)
         pdf.ln(4)
 
-        # Vložení grafů
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(0, 8, "3. Grafické znázornění", 0, 1)
         pdf.image(f"{tmpdir}/geo.png", x=15, w=85)
@@ -497,4 +493,8 @@ if st.session_state.is_playing:
     if st.session_state.anim_deg >= theta_max_deg:
         st.session_state.anim_deg = 0.0
     else:
-    ...
+        st.session_state.anim_deg += 2.0
+        if st.session_state.anim_deg > theta_max_deg:
+            st.session_state.anim_deg = float(theta_max_deg)
+    time.sleep(0.04)
+    st.rerun()
