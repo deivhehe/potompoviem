@@ -23,7 +23,6 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
-    # Pokus 1: Přesný optimalizační hledáček
     def objective(v):
         lx, ly = v
         L_0 = np.sqrt((lx - Xb_mm)**2 + (ly - Yb_mm)**2)
@@ -43,7 +42,6 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         if res.success and res.fun < 10.0:
             return res.x, True
             
-    # Pokus 2 (Záložní): Pokud je zadání příliš těsné, uvolníme boudy a najdeme nejbližší rozumný bod v okolí víka
     res_fallback = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(-100.0, L_lid_mm + 200), (-200.0, H_lid_mm + 200)], method='L-BFGS-B')
     if res_fallback.success:
         return res_fallback.x, True
@@ -104,11 +102,22 @@ st.sidebar.header("5) Konfigurace vzpěr")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
-if use_aux:
-    st.sidebar.header("6) Poměr sil vzpěr")
-    force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
-else:
-    force_ratio = 50
+# Přepínač pro vlastní sílu v režimu kontroly
+use_custom_forces = False
+if app_mode == "Kontrola existujícího řešení":
+    st.sidebar.header("6) Síly vzpěr")
+    use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výpočet)", value=False)
+    if use_custom_forces:
+        custom_f_main = st.sidebar.number_input("Síla 1 ks hlavní vzpěry (N)", 10.0, 10000.0, 500.0, 10.0)
+        if use_aux:
+            custom_f_aux = st.sidebar.number_input("Síla 1 ks pomocné vzpěry (N)", 10.0, 10000.0, 300.0, 10.0)
+
+if not use_custom_forces:
+    if use_aux:
+        st.sidebar.header("6) Poměr sil vzpěr")
+        force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
+    else:
+        force_ratio = 50
 
 st.sidebar.header("7) Hlavní vzpěra")
 Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
@@ -143,7 +152,6 @@ theta_max = np.radians(theta_max_deg)
 n_main = 2
 n_aux = 2
 
-# Určení pozic čepů (Výpočet VS. Manuální zadání z kontroly)
 if app_mode == "Návrh a optimalizace":
     pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
     if not ok1:
@@ -177,13 +185,12 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-def calc_F_hand_internal(th, Fm, Fa):
-    Ts_main = n_main * Fm * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
-    Ts_aux = n_aux * Fa * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
-    h_arm = handle_moment_arm_m(th)
-    return -(Tg(th) + Ts_main + Ts_aux) / h_arm
-
 def solve_forces():
+    if use_custom_forces:
+        Fm = custom_f_main
+        Fa = custom_f_aux if use_aux else 0.0
+        return Fm, Fa
+
     def objective(forces):
         if use_aux:
             Fm, Fa = forces
@@ -224,6 +231,12 @@ def solve_forces():
 
 F_main, F_aux = solve_forces()
 
+def calc_F_hand_internal(th, Fm, Fa):
+    Ts_main = n_main * Fm * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+    Ts_aux = n_aux * Fa * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
+    h_arm = handle_moment_arm_m(th)
+    return -(Tg(th) + Ts_main + Ts_aux) / h_arm
+
 def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
@@ -233,9 +246,9 @@ def F_hand(theta):
 st.title(f"🔧 {app_mode}")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Potřebná síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
+c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
 if use_aux:
-    c2.metric("Potřebná síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
+    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
 else:
     c2.metric("Pomocná vzpěra", "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
