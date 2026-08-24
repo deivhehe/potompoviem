@@ -389,7 +389,6 @@ st.divider()
 
 col_geo, col_force = st.columns(2)
 
-# Výrazně snížená výška grafů, aby 100% nelezly mimo stránku (z poměru 3.2 na 2.8)
 fig1, ax1 = plt.subplots(figsize=(5, 2.8))
 fig2, ax2 = plt.subplots(figsize=(5, 2.8))
 common_adjust = {'left': 0.15, 'bottom': 0.18, 'right': 0.95, 'top': 0.9}
@@ -404,31 +403,39 @@ def draw_geometry_mm(ax, theta):
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
 
-    ax.plot(0, 0, "ko", markersize=8, zorder=5)
+    # Zmenšený pant
+    ax.plot(0, 0, "ko", markersize=4, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
+    # Zmenšené těžiště (CG)
     Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
-    ax.plot(Xc, Yc, "o", color="red", markersize=9, zorder=6)
+    ax.plot(Xc, Yc, "o", color="red", markersize=4.5, zorder=6)
     ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red", fontsize=9, fontweight='bold')
 
+    # Zmenšené madlo
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
-    ax.plot(hx, hy, "go", markersize=9, zorder=7)
+    ax.plot(hx, hy, "go", markersize=4.5, zorder=7)
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
 
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
     ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
-    ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
-    ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
+    # Zmenšené úchyty vzpěry
+    ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=3.5, zorder=5)
+    ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=3.5, zorder=5)
 
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
         ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
-        ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
-        ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
+        # Zmenšené úchyty pomocné vzpěry
+        ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=3.5, zorder=5)
+        ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=3.5, zorder=5)
 
     max_dim = max(lid_length, lid_height)
-    ax.set_xlim(-max_dim * 0.25, lid_length * 1.2)
+    
+    # Úprava X osy tak, aby fixně dosahovala min. +600 a min. -600 (zobrazí celý prostor)
+    ax.set_xlim(min(-600.0, -max_dim * 0.25), max(lid_length * 1.2, 600.0))
     ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
+    
     ax.set_box_aspect(1)
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
@@ -450,7 +457,8 @@ def draw_force_profile(ax, theta_marker=None):
         ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod")
 
     if theta_marker is not None:
-        ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=8, zorder=6)
+        # Zmenšený bod v pravém grafu
+        ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=4, zorder=6)
 
     ax.set_box_aspect(1)
     ax.tick_params(axis='both', labelsize=8)
