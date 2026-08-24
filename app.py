@@ -237,11 +237,10 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom, cur_lx1, cur_ly1, cur_lx2, cu
 
     return Fm_actual, Fa_actual
 
-# Paměť pro plynulé navazování sil (zabrání divokým skokům při posunu o 1 mm)
 if 'last_solved_forces' not in st.session_state:
     st.session_state.last_solved_forces = [500.0, 300.0]
 
-def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt):
+def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt, target_force_at_0=None):
     if use_custom_forces and app_mode == "Kontrola existujícího řešení":
         return custom_f_main, (custom_f_aux if use_aux else 0.0)
 
@@ -261,6 +260,17 @@ def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt):
                 moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
                 moment_tíže = -Tg(th)
                 err += (moment_vzpěr - moment_tíže)**2
+            
+            # Pokud je zadaná požadovaná síla na madlu při 0°, přičteme penalizaci za odchylku
+            if target_force_at_0 is not None:
+                d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx_opt, ly_opt, 0.0)
+                d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2_opt, ly2_opt, 0.0)
+                Fm_0, Fa_0 = get_struts_forces_at_angle(0.0, Fm_nom, Fa_nom, lx_opt, ly_opt, lx2_opt, ly2_opt)
+                Ts_0 = n_main * Fm_0 * d1_0 + n_aux * Fa_0 * d2_0
+                h_arm_0 = handle_moment_arm_m(0.0)
+                current_f_0 = -(Tg(0.0) + Ts_0) / h_arm_0
+                err += (current_f_0 - target_force_at_0)**2 * 50.0
+
             return err
 
         res = minimize(objective, initial_guess, bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
@@ -279,6 +289,15 @@ def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt):
                 moment_vzpěr = n_main * Fm_act * d1
                 moment_tíže = -Tg(th)
                 err += (moment_vzpěr - moment_tíže)**2
+            
+            if target_force_at_0 is not None:
+                d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx_opt, ly_opt, 0.0)
+                Fm_0, _ = get_struts_forces_at_angle(0.0, Fm_nom[0], 0.0, lx_opt, ly_opt, 0, 0)
+                Ts_0 = n_main * Fm_0 * d1_0
+                h_arm_0 = handle_moment_arm_m(0.0)
+                current_f_0 = -(Tg(0.0) + Ts_0) / h_arm_0
+                err += (current_f_0 - target_force_at_0)**2 * 50.0
+
             return err
 
         res = minimize(objective_single, [initial_guess[0]], bounds=[(10, 20000)], method='L-BFGS-B')
@@ -288,11 +307,13 @@ def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt):
         return initial_guess[0], 0.0
 
 # ----------------------------------------------------------------------
-# Určení pozic čepů
+# Určení pozic čepů a korekce počáteční síly
 # ----------------------------------------------------------------------
+force_offset_at_0 = 0.0
+
 if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
-    st.markdown("### 🎛️ Volitelné ladění pozic čepů na víku")
+    st.markdown("### 🎛️ Volitelné ladění pozic čepů a počáteční síly")
     
     min_x1 = max(0.0, Xb1 - L0_1)
     max_x1 = min(lid_length, Xb1 + L0_1)
@@ -316,13 +337,16 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         st.info(f"💡 Pomocná vzpěra: minimální délka (zavřený stav) = **{L2_min_input:.1f} mm** | geometrická vzdálenost čepů = **{geom_L2_0:.1f} mm**")
     else:
         lx2, ly2 = 0.0, 0.0
+
+    st.markdown("---")
+    force_offset_at_0 = st.slider("Cílená síla na madlu při otevření @0° (N) [kladná = tlačit, záporná = drží samo]", -200.0, 200.0, 0.0, 5.0)
 else:
     st.title(f"🔧 {app_mode}")
     lx1, ly1 = default_lx1, default_ly1
     lx2, ly2 = default_lx2, default_ly2
     L2_min_input = 478.0
 
-F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2)
+F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2, target_force_at_0=force_offset_at_0 if (enable_manual_pin and app_mode == "Návrh a optimalizace") else None)
 
 def calc_F_hand_internal(th, Fm_nom, Fa_nom):
     d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
