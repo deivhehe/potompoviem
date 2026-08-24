@@ -169,7 +169,7 @@ if use_aux:
 
 # Volitelná ruční úprava čepů
 st.sidebar.header("8) Interaktivní úprava čepů")
-enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na dráhách", value=False)
+enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
 
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
@@ -333,8 +333,8 @@ def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Jmenovitá síla F1 hlavní (1 ks)", f"{F_main:.0f} N")
-c2.metric("Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
+c1.metric("Potřebná síla hlavní vzpěry - 1ks", f"{F_main:.0f} N")
+c2.metric("Potřebná síla pomocné vzpěry - 1ks" if use_aux else "Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
 c4.metric("Potřebná síla k zavření @max", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
