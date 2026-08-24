@@ -161,6 +161,10 @@ Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.
 L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
 S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
 
+# Výchozí hodnoty pro pomocnou vzpěru (aby proměnné vždy existovaly, i když use_aux == False)
+L2_min_input = 478.0
+S2 = 120.0
+
 if use_aux:
     st.sidebar.header("Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
@@ -198,7 +202,9 @@ pin_def, ok_def = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, l
 default_lx1, default_ly1 = pin_def if ok_def else (lid_length * 0.5, lid_height * 0.5)
 
 if use_aux:
-    pin2, ok2 = solve_pin_custom(Xb2, Yb2, 300.0, 120.0, theta_max, lid_length, lid_height, allow_behind=True)
+    # OPRAVA: dřív se tu volalo natvrdo solve_pin_custom(Xb2, Yb2, 300.0, 120.0, ...),
+    # takže se ignorovaly skutečné hodnoty L2_min_input / S2 zadané v sidebaru.
+    pin2, ok2 = solve_pin_custom(Xb2, Yb2, L2_min_input, S2, theta_max, lid_length, lid_height, allow_behind=True)
     default_lx2, default_ly2 = pin2 if ok2 else (100.0, 100.0)
 else:
     default_lx2, default_ly2 = 0.0, 0.0
@@ -228,14 +234,30 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom, cur_lx1, cur_ly1, cur_lx2, cu
         Xp2, Yp2 = rotate_mm(cur_lx2, cur_ly2, th)
         geom_L2_0 = np.sqrt((cur_lx2 - Xb2)**2 + (cur_ly2 - Yb2)**2)
         geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        delta_L = geom_L2_th - geom_L2_0
-        L2_current = L2_min_input + delta_L
-        
-        L2_max_real = L2_min_input + (np.sqrt((rotate_mm(cur_lx2, cur_ly2, theta_max)[0] - Xb2)**2 + (rotate_mm(cur_lx2, cur_ly2, theta_max)[1] - Yb2)**2) - geom_L2_0)
-        
-        Fa_actual = get_strut_force_at_length(L2_current, min(L2_min_input, L2_max_real), S2, Fa_nom, progression_rate_aux)
+        # Fyzická délka vzpěry = pevná minimální délka + geometrická změna vzdálenosti čepů
+        # oproti stavu při theta=0.
+        L2_current = L2_min_input + (geom_L2_th - geom_L2_0)
+
+        # OPRAVA: dřív se tu porovnávalo proti "L2_max_real" odvozenému z polohy
+        # při theta_max, což je špatně jak pro monotónní, tak (a hlavně) pro
+        # nemonotónní trajektorie, kdy se vzpěra nejdřív vysune a pak zase zasune.
+        # Vzpěra má fyzicky PEVNÝ rozsah [L2_min_input, L2_min_input + S2] daný
+        # konstrukcí, nezávisle na tom, kde skončí geometrie při theta_max.
+        Fa_actual = get_strut_force_at_length(L2_current, L2_min_input, S2, Fa_nom, progression_rate_aux)
 
     return Fm_actual, Fa_actual
+
+def aux_strut_travel_mm(cur_lx2, cur_ly2, th_max, n_points=200):
+    """Vrátí (min, max) fyzické délky pomocné vzpěry na celé trajektorii 0..th_max."""
+    thetas = np.linspace(0.0, th_max, n_points)
+    geom_L2_0 = np.sqrt((cur_lx2 - Xb2) ** 2 + (cur_ly2 - Yb2) ** 2)
+    lengths = []
+    for th in thetas:
+        Xp2, Yp2 = rotate_mm(cur_lx2, cur_ly2, th)
+        geom_L2_th = np.sqrt((Xp2 - Xb2) ** 2 + (Yp2 - Yb2) ** 2)
+        lengths.append(L2_min_input + (geom_L2_th - geom_L2_0))
+    lengths = np.array(lengths)
+    return float(lengths.min()), float(lengths.max())
 
 if 'last_solved_forces' not in st.session_state:
     st.session_state.last_solved_forces = [500.0, 300.0]
@@ -310,7 +332,11 @@ def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt, target_force_at_0=None
 # ----------------------------------------------------------------------
 force_offset_at_0 = 0.0
 
-if enable_manual_pin and app_mode == "Návrh a optimalizace":
+# OPRAVA: dřív bylo podmíněno i app_mode == "Návrh a optimalizace", takže
+# zaškrtnutí "Ručně upravit pozice čepů" v režimu "Kontrola existujícího řešení"
+# nemělo vůbec žádný efekt, přestože checkbox byl v obou režimech viditelný
+# a aktivní. Ruční úprava čepů teď funguje v obou režimech.
+if enable_manual_pin:
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů a počáteční síly")
     
@@ -332,7 +358,7 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2 = col_p1.slider("Čep pomocné vzpěry – X (mm)", min_value=-400.0, max_value=float(lid_length + 200.0), value=float(default_lx2), step=1.0)
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
-        geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        geom_L2_0 = np.sqrt((lx2 - Xb2) ** 2 + (ly2 - Yb2) ** 2)
         st.info(f"💡 Pomocná vzpěra: minimální délka (zavřený stav) = **{L2_min_input:.1f} mm** | geometrická vzdálenost čepů = **{geom_L2_0:.1f} mm**")
     else:
         lx2, ly2 = 0.0, 0.0
@@ -343,9 +369,25 @@ else:
     st.title(f"🔧 {app_mode}")
     lx1, ly1 = default_lx1, default_ly1
     lx2, ly2 = default_lx2, default_ly2
-    L2_min_input = 478.0
+    # OPRAVA: dřív tu bylo "L2_min_input = 478.0", což natvrdo přepsalo hodnotu
+    # zadanou uživatelem v sidebaru. L2_min_input už je správně nastavené výše
+    # (buď ze sidebar number_input, nebo na výchozí hodnotu, pokud use_aux == False),
+    # takže se sem už nesahá.
 
-F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2, target_force_at_0=force_offset_at_0 if (enable_manual_pin and app_mode == "Návrh a optimalizace") else None)
+F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2, target_force_at_0=force_offset_at_0 if enable_manual_pin else None)
+
+# Kontrola, jestli navržená/ručně zadaná geometrie nepřekračuje mechanický zdvih pomocné vzpěry
+if use_aux:
+    L2_travel_min, L2_travel_max = aux_strut_travel_mm(lx2, ly2, theta_max)
+    L2_allowed_max = L2_min_input + S2
+    tol = 0.5
+    if L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
+        st.warning(
+            f"⚠️ Pomocná vzpěra by během otevírání musela mít délku "
+            f"{L2_travel_min:.0f}–{L2_travel_max:.0f} mm, ale její mechanický rozsah je jen "
+            f"{L2_min_input:.0f}–{L2_allowed_max:.0f} mm (zdvih {S2:.0f} mm). "
+            "V části rozsahu by narazila na doraz – upravte polohu čepů nebo zdvih vzpěry."
+        )
 
 def calc_F_hand_internal(th, Fm_nom, Fa_nom):
     d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
