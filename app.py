@@ -287,7 +287,7 @@ def solve_forces():
         def objective(total_scale):
             if total_scale < 20 or total_scale > 40000:
                 return 1e12
-            # OPRAVENO: Hlavní vzpěra bere force_ratio, pomocná zbytek (100 - force_ratio)
+            # Správné mapování: posunem slideru doprava (vyšší force_ratio) roste podíl hlavní vzpěry
             Fm_nom = total_scale * (force_ratio / 100.0)
             Fa_nom = total_scale * ((100.0 - force_ratio) / 100.0)
             
