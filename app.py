@@ -422,18 +422,11 @@ col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
 # ----------------------------------------------------------------------
-# Tisk / Export protokolu do PDF přes nativní rozhraní prohlížeče
+# Návod pro uložení protokolu do PDF
 # ----------------------------------------------------------------------
 st.divider()
-st.subheader("📄 Export protokolu do PDF")
-st.info("💡 Pro okamžité a bezchybné uložení protokolu do PDF včetně české diakritiky a grafů použijte tlačítko níže (vyvolá tiskovou nabídku prohlížeče, kde zvolte 'Uložit jako PDF').")
-
-if st.button("🖨️ Vytisknout / Uložit protokol jako PDF", type="primary"):
-    st.markdown("""
-        <script>
-            window.print();
-        </script>
-    """, unsafe_allow_html=True)
+st.subheader("📄 Uložení protokolu do PDF")
+st.success("💡 Pro uložení kompletního výsledku včetně grafů a hodnot jednoduše stiskněte klávesovou zkratku **Ctrl + P** (na Macu **Cmd + P**) a v tiskovém dialogu vyberte **Uložit jako PDF**.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
