@@ -132,13 +132,11 @@ st.sidebar.header("5) Konfigurace vzpěr a nárůst síly")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
-# Výběr typu hlavní vzpěry
 strut_type_main_key = st.sidebar.selectbox("Typ hlavní vzpěry (progresivita)", list(STRUT_TYPES.keys()))
 progression_rate_main = STRUT_TYPES[strut_type_main_key]
 if strut_type_main_key == "Vlastní koeficient nárůstu":
     progression_rate_main = st.sidebar.slider("Vlastní nárůst hlavní vzpěry (%)", 0.0, 1.0, 0.35, 0.05)
 
-# Výběr typu pomocné vzpěry (pokud je aktivní)
 if use_aux:
     strut_type_aux_key = st.sidebar.selectbox("Typ pomocné vzpěry (progresivita)", list(STRUT_TYPES.keys()))
     progression_rate_aux = STRUT_TYPES[strut_type_aux_key]
@@ -179,7 +177,7 @@ if use_aux:
 
 # Volitelná ruční úprava čepů
 st.sidebar.header("8) Interaktivní úprava čepů")
-enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
+enable_manual_pid = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
 
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
@@ -215,7 +213,7 @@ else:
 # ----------------------------------------------------------------------
 # Určení pozic čepů (hlavní X slider s Y dopočtem, pomocná X i Y slidery)
 # ----------------------------------------------------------------------
-if enable_manual_pin and app_mode == "Návrh a optimalizace":
+if enable_manual_pid and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů na víku")
     
@@ -293,15 +291,18 @@ def solve_forces():
     def objective(forces):
         if use_aux:
             Fm_nom, Fa_nom = forces
-            if Fm_nom < 50 or Fa_nom < 50:
-                return 1e9
-            ratio_actual = Fm_nom / (Fm_nom + Fa_nom + 1e-6)
+            if Fm_nom < 10 or Fa_nom < 10:
+                return 1e12
+            
+            # Vynucení poměru sil přesně podle slideru (silná váha)
+            total_f = Fm_nom + Fa_nom
+            ratio_actual = Fm_nom / (total_f + 1e-6)
             ratio_target = force_ratio / 100.0
-            ratio_penalty = (ratio_actual - ratio_target)**2 * 1000.0
+            ratio_penalty = (ratio_actual - ratio_target)**2 * 1e8
         else:
             Fm_nom = forces[0]
-            if Fm_nom < 50:
-                return 1e9
+            if Fm_nom < 10:
+                return 1e12
             Fa_nom = 0.0
             ratio_penalty = 0.0
         
@@ -319,10 +320,10 @@ def solve_forces():
         return err + ratio_penalty
 
     if use_aux:
-        res = minimize(objective, [500.0, 500.0], bounds=[(50, 5000), (50, 5000)], method='L-BFGS-B')
+        res = minimize(objective, [500.0, 500.0], bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
         return (res.x[0], res.x[1]) if res.success else (500.0, 500.0)
     else:
-        res = minimize(objective, [500.0], bounds=[(50, 5000)], method='L-BFGS-B')
+        res = minimize(objective, [500.0], bounds=[(10, 20000)], method='L-BFGS-B')
         return (res.x[0], 0.0) if res.success else (500.0, 0.0)
 
 F_main, F_aux = solve_forces()
