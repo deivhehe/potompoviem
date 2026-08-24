@@ -6,7 +6,7 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
-# CSS styly pro tisk (zajištění správného měřítka a zobrazení všeho na 1 list)
+# CSS styly pro tisk
 st.markdown("""
     <style>
     @media print {
@@ -14,9 +14,9 @@ st.markdown("""
             display: none !important;
         }
         body {
-            transform: scale(0.70);
+            transform: scale(0.68);
             transform-origin: top left;
-            width: 142% !important;
+            width: 145% !important;
         }
     }
     </style>
@@ -331,16 +331,16 @@ def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
 # ----------------------------------------------------------------------
-# Hlavní plocha – Výsledky a přehled parametrů
+# Hlavní plocha – Výsledky a přehled parametrů pro tisk
 # ----------------------------------------------------------------------
 st.title(f"🔧 {app_mode}")
 
-# Shrnutí vstupů v tiskovém bloku
-with st.expander("📋 Zobrazení a kontrola zadaných parametrů", expanded=False):
+# Rozbalovací panel se všemi zadanými hodnotami (pro tisk)
+with st.expander("📋 Kompletní přehled zadaných parametrů (pro tisk)", expanded=True):
     col_inf1, col_inf2, col_inf3 = st.columns(3)
-    col_inf1.markdown(f"**Délka víka:** {lid_length} mm  \n**Výška víka:** {lid_height} mm  \n**Hmotnost:** {lid_mass} kg")
-    col_inf2.markdown(f"**Těžiště (X, Y):** {cg_x_mm}, {cg_y_mm} mm  \n**Madlo (X, Y):** {handle_x_mm}, {handle_y_mm} mm  \n**Max. úhel:** {theta_max_deg}°")
-    col_inf3.markdown(f"**Uspořádání:** {config_type}  \n**Typ vzpěry:** {strut_type_key}  \n**Hlavní vana (X, Y):** {Xb1}, {Yb1} mm")
+    col_inf1.markdown(f"**Režim:** {app_mode}  \n**Délka víka:** {lid_length} mm  \n**Výška víka:** {lid_height} mm  \n**Hmotnost:** {lid_mass} kg")
+    col_inf2.markdown(f"**Těžiště (X, Y):** {cg_x_mm}, {cg_y_mm} mm  \n**Madlo (X, Y):** {handle_x_mm}, {handle_y_mm} mm  \n**Max. úhel:** {theta_max_deg}°  \n**Uspořádání:** {config_type}")
+    col_inf3.markdown(f"**Typ vzpěry:** {strut_type_key}  \n**Hlavní vana (X, Y):** {Xb1}, {Yb1} mm" + (f"  \n**Pomocná vana (X, Y):** {Xb2}, {Yb2} mm" if use_aux else ""))
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Jmenovitá síla F1 hlavní (1 ks)", f"{F_main:.0f} N")
@@ -406,7 +406,8 @@ def draw_geometry_mm(ax, theta):
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.25, lid_length * 1.2)
-    ax.set_ylim(-400, max(lid_height * 1.5, 300))
+    # Opraveno: Osa Y sahá minimálně do 1000 mm, aby bylo vidět celé víko při otevření
+    ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
     ax.set_box_aspect(1)
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
@@ -445,11 +446,11 @@ col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
 # ----------------------------------------------------------------------
-# Uložení protokolu do PDF
+# Instrukce pro tisk
 # ----------------------------------------------------------------------
 st.divider()
 st.subheader("📄 Uložení protokolu do PDF")
-st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Kompletní zadání, výsledky i grafy se díky tomu přehledně vytisknou na jedinou stránku.")
+st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Všechny vstupní hodnoty, výsledky i grafy se díky rozbalovacímu přehledu vytisknou kompletně na jedinou stránku.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
