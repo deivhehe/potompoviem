@@ -6,12 +6,16 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
-# CSS styly pro perfektní tisk (zarovnání doleva, roztažení a zmenšení)
+# CSS styly pro perfektní tisk (zarovnání, minimalizace okrajů a zmenšení)
 st.markdown("""
     <style>
     @media print {
+        @page {
+            size: A4 landscape;
+            margin: 5mm;
+        }
         /* Skrytí nepotřebných prvků Streamlitu (hlavička, patička, tlačítka) */
-        header, footer, .stButton, .viewerBadge_container__1QSob, [data-testid="stSidebar"] {
+        header, footer, .stButton, .viewerBadge_container__1QSob, [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none !important;
         }
         /* Zrušení odsazení a mezer, roztažení obsahu na celou šířku */
@@ -23,14 +27,11 @@ st.markdown("""
         }
         .block-container {
             max-width: 100% !important;
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
+            padding: 0rem !important;
         }
-        /* Použití zoomu (přepočítá reálně layout, na rozdíl od scale) - zaručí, že se vejde i spodek */
+        /* Výraznější zmenšení pro jistotu, že se vejde i spodek grafu */
         body {
-            zoom: 65% !important;
+            zoom: 55% !important;
         }
     }
     </style>
@@ -382,9 +383,10 @@ if theta_dead is not None:
 st.divider()
 
 col_geo, col_force = st.columns(2)
-# Mírně rozšířený poměr stran pro lepší usazení na šířku
-fig1, ax1 = plt.subplots(figsize=(5, 3.8))
-fig2, ax2 = plt.subplots(figsize=(5, 3.8))
+
+# Úprava figsize: Zmenšená výška (z 3.8 na 3.2), aby grafy zabíraly méně vertikálního místa
+fig1, ax1 = plt.subplots(figsize=(5, 3.2))
+fig2, ax2 = plt.subplots(figsize=(5, 3.2))
 common_adjust = {'left': 0.15, 'bottom': 0.15, 'right': 0.95, 'top': 0.9}
 fig1.subplots_adjust(**common_adjust)
 fig2.subplots_adjust(**common_adjust)
@@ -464,7 +466,7 @@ col_force.pyplot(fig2)
 # ----------------------------------------------------------------------
 st.divider()
 st.subheader("📄 Uložení protokolu do PDF")
-st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Všechny vstupní hodnoty, výsledky i grafy se díky rozbalovacímu přehledu vytisknou kompletně na jedinou stránku bez chybějících částí.")
+st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
