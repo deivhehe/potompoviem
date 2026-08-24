@@ -8,6 +8,21 @@ st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layou
 
 G = 9.81  # m/s^2
 
+# Přesné typy vzpěr a jejich nárůst síly (progrese) dle tvého zadání
+STRUT_TYPES = {
+    "Typ G3/8 (nárůst 30 %)": 0.30,
+    "Typ G4/12 (nárůst 25 %)": 0.25,
+    "Typ G6/15 (nárůst 35 %)": 0.35,
+    "Typ G8/19 (nárůst 35 %)": 0.35,
+    "Typ G10/23 (nárůst 35 %)": 0.35,
+    "Typ G10/14 (nárůst 50 %)": 0.50,
+    "Typ G20/40 (nárůst 35 %)": 0.35,
+    "Typ G22/40 (nárůst 45 %)": 0.45,
+    "Typ G25/55 (nárůst 35 %)": 0.35,
+    "Typ G30/65 (nárůst 35 %)": 0.35,
+    "Vlastní koeficient nárůstu": 0.35
+}
+
 # ----------------------------------------------------------------------
 # Pomocné fyzikální funkce
 # ----------------------------------------------------------------------
@@ -98,9 +113,14 @@ cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np
 st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("5) Konfigurace vzpěr")
+st.sidebar.header("5) Konfigurace vzpěr a nárůst síly")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
+
+strut_type_key = st.sidebar.selectbox("Typ vzpěry (progresivita)", list(STRUT_TYPES.keys()))
+progression_rate = STRUT_TYPES[strut_type_key]
+if strut_type_key == "Vlastní koeficient nárůstu":
+    progression_rate = st.sidebar.slider("Vlastní nárůst síly (%)", 0.0, 1.0, 0.35, 0.05)
 
 # Přepínač pro vlastní sílu v režimu kontroly
 use_custom_forces = False
@@ -108,9 +128,9 @@ if app_mode == "Kontrola existujícího řešení":
     st.sidebar.header("6) Síly vzpěr")
     use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výpočet)", value=False)
     if use_custom_forces:
-        custom_f_main = st.sidebar.number_input("Síla 1 ks hlavní vzpěry (N)", 10.0, 10000.0, 500.0, 10.0)
+        custom_f_main = st.sidebar.number_input("Jmenovitá síla F1 (1 ks hlavní)", 10.0, 10000.0, 500.0, 10.0)
         if use_aux:
-            custom_f_aux = st.sidebar.number_input("Síla 1 ks pomocné vzpěry (N)", 10.0, 10000.0, 300.0, 10.0)
+            custom_f_aux = st.sidebar.number_input("Jmenovitá síla F1 (1 ks pomocné)", 10.0, 10000.0, 300.0, 10.0)
 
 if not use_custom_forces:
     if use_aux:
@@ -185,6 +205,31 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
+def get_strut_force_at_length(L_current, L_min, S, F_nominal):
+    compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
+    return F_nominal * (1.0 + progression_rate * compression_ratio)
+
+def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
+    Xp1, Yp1 = rotate_mm(lx1, ly1, th)
+    L1 = np.sqrt((Xp1 - Xb1)**2 + (Yp1 - Yb1)**2)
+    L_min1 = np.sqrt((lx1 - Xb1)**2 + (ly1 - Yb1)**2)
+    Xp1_m, Yp1_m = rotate_mm(lx1, ly1, theta_max)
+    L_max1 = np.sqrt((Xp1_m - Xb1)**2 + (Yp1_m - Yb1)**2)
+    S1_est = max(abs(L_max1 - L_min1), 10.0)
+    Fm_actual = get_strut_force_at_length(L1, min(L_min1, L_max1), S1_est, Fm_nom)
+
+    Fa_actual = 0.0
+    if use_aux:
+        Xp2, Yp2 = rotate_mm(lx2, ly2, th)
+        L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
+        L_min2 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        Xp2_m, Yp2_m = rotate_mm(lx2, ly2, theta_max)
+        L_max2 = np.sqrt((Xp2_m - Xb2)**2 + (Yp2_m - Yb2)**2)
+        S2_est = max(abs(L_max2 - L_min2), 10.0)
+        Fa_actual = get_strut_force_at_length(L2, min(L_min2, L_max2), S2_est, Fa_nom)
+
+    return Fm_actual, Fa_actual
+
 def solve_forces():
     if use_custom_forces:
         Fm = custom_f_main
@@ -193,27 +238,28 @@ def solve_forces():
 
     def objective(forces):
         if use_aux:
-            Fm, Fa = forces
-            if Fm < 10 or Fa < 10:
+            Fm_nom, Fa_nom = forces
+            if Fm_nom < 10 or Fa_nom < 10:
                 return 1e9
-            ratio_actual = Fm / (Fm + Fa + 1e-6)
+            ratio_actual = Fm_nom / (Fm_nom + Fa_nom + 1e-6)
             ratio_target = force_ratio / 100.0
             ratio_penalty = (ratio_actual - ratio_target)**2 * 100000.0
         else:
-            Fm = forces[0]
-            if Fm < 10:
+            Fm_nom = forces[0]
+            if Fm_nom < 10:
                 return 1e9
-            Fa = 0.0
+            Fa_nom = 0.0
             ratio_penalty = 0.0
         
         err = 0.0
         for th in np.linspace(0, theta_max, 5):
             d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+            Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
             if use_aux:
                 d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th)
-                moment_vzpěr = n_main * Fm * d1 + n_aux * Fa * d2
+                moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
             else:
-                moment_vzpěr = n_main * Fm * d1
+                moment_vzpěr = n_main * Fm_act * d1
             moment_tíže = -Tg(th)
             err += (moment_vzpěr - moment_tíže)**2
         return err + ratio_penalty
@@ -231,9 +277,12 @@ def solve_forces():
 
 F_main, F_aux = solve_forces()
 
-def calc_F_hand_internal(th, Fm, Fa):
-    Ts_main = n_main * Fm * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
-    Ts_aux = n_aux * Fa * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
+def calc_F_hand_internal(th, Fm_nom, Fa_nom):
+    d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+    d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
+    Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
+    Ts_main = n_main * Fm_act * d1
+    Ts_aux = n_aux * Fa_act * d2 if use_aux else 0.0
     h_arm = handle_moment_arm_m(th)
     return -(Tg(th) + Ts_main + Ts_aux) / h_arm
 
@@ -246,9 +295,9 @@ def F_hand(theta):
 st.title(f"🔧 {app_mode}")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Síla hlavní vzpěry (1 ks)", f"{F_main:.0f} N")
+c1.metric("Jmenovitá síla F1 hlavní (1 ks)", f"{F_main:.0f} N")
 if use_aux:
-    c2.metric("Síla pomocné vzpěry (1 ks)", f"{F_aux:.0f} N")
+    c2.metric("Jmenovitá síla F1 pomocné (1 ks)", f"{F_aux:.0f} N")
 else:
     c2.metric("Pomocná vzpěra", "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
