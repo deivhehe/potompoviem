@@ -1,6 +1,7 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 from scipy.optimize import fsolve, brentq, minimize
 import time
 
@@ -12,17 +13,14 @@ st.markdown("""
     @media print {
         @page {
             size: A4 landscape;
-            margin: 0mm; /* Maximální využití plochy papíru */
+            margin: 0mm;
         }
-        /* Skrytí hlavičky, tlačítek, sidebaru a vodoznaku Streamlitu */
         header, footer, .stButton, .viewerBadge_container__1QSob, [data-testid="stSidebar"], [data-testid="stHeader"] {
             display: none !important;
         }
-        /* Skrytí vodorovných čar (dividerů) při tisku pro úsporu vertikálního místa */
         hr {
             display: none !important;
         }
-        /* Zrušení odsazení a mezer, roztažení obsahu na celou šířku */
         [data-testid="stMain"] {
             margin-left: 0 !important;
             width: 100% !important;
@@ -34,7 +32,6 @@ st.markdown("""
             padding-top: 1rem !important;
             padding-bottom: 0rem !important;
         }
-        /* Snížení zoomu na 50 %, aby se 100% vešla i spodní osa */
         body {
             zoom: 50% !important;
         }
@@ -403,51 +400,67 @@ def draw_geometry_mm(ax, theta):
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
 
-    # Zmenšený pant
+    # Pant
     ax.plot(0, 0, "ko", markersize=4, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
-    # Zmenšené těžiště (CG)
+    # Těžiště (CG)
     Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
     ax.plot(Xc, Yc, "o", color="red", markersize=4.5, zorder=6)
     ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red", fontsize=9, fontweight='bold')
 
-    # Zmenšené madlo
+    # Madlo
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     ax.plot(hx, hy, "go", markersize=4.5, zorder=7)
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
 
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
     ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
-    # Zmenšené úchyty vzpěry
     ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=3.5, zorder=5)
     ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=3.5, zorder=5)
 
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
         ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
-        # Zmenšené úchyty pomocné vzpěry
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=3.5, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=3.5, zorder=5)
 
     max_dim = max(lid_length, lid_height)
-    
-    # Úprava X osy tak, aby fixně dosahovala min. +600 a min. -600 (zobrazí celý prostor)
     ax.set_xlim(min(-600.0, -max_dim * 0.25), max(lid_length * 1.2, 600.0))
     ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
+    
+    # Nastavení os jako pravítko (milimetrová mřížka)
+    # Hlavní dílky po 200 mm (velké čárky s popisky)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
+    # Střední dílky po 100 mm (půlka)
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
+    ax.yaxis.set_minor_locator(ticker.MultipleLocator(100))
+
+    # Vykreslení mřížky pro pravítko (velká vs. malá mřížka)
+    ax.grid(which='major', color='grey', linestyle='-', linewidth=0.6, alpha=0.5)
+    ax.grid(which='minor', color='lightgrey', linestyle=':', linewidth=0.4, alpha=0.5)
     
     ax.set_box_aspect(1)
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
     ax.set_title(f"Geometrie @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
     ax.legend(loc="upper left", fontsize=7)
-    ax.grid(alpha=0.3)
 
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
+    
+    # Rozsah osy X pevně do 110° s krokem 10°
+    ax.set_xlim(0, 110)
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
+    
+    # Síly s krokem po 10 N
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(10))
+
     thetas = np.linspace(0, theta_max, 200)
     forces_n = np.array([F_hand(t) for t in thetas])
     degs = np.degrees(thetas)
+    
     ax.axhline(0, color="black", linewidth=1)
     ax.fill_between(degs, forces_n, 0, where=(forces_n >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
     ax.fill_between(degs, forces_n, 0, where=(forces_n < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
@@ -457,7 +470,6 @@ def draw_force_profile(ax, theta_marker=None):
         ax.axvline(np.degrees(theta_dead), color="purple", linestyle="--", linewidth=1.5, label="Mrtvý bod")
 
     if theta_marker is not None:
-        # Zmenšený bod v pravém grafu
         ax.plot(np.degrees(theta_marker), F_hand(theta_marker), "o", color="black", markersize=4, zorder=6)
 
     ax.set_box_aspect(1)
@@ -466,7 +478,7 @@ def draw_force_profile(ax, theta_marker=None):
     ax.set_ylabel("Síla na madlu (N)", fontsize=9)
     ax.set_title("Profil síly na madlu", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
-    ax.grid(alpha=0.3)
+    ax.grid(alpha=0.3, which='both')
 
 theta_disp = np.radians(st.session_state.anim_deg)
 draw_geometry_mm(ax1, theta_disp)
