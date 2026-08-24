@@ -400,7 +400,9 @@ def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     ax.set_xlim(0, 110)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(10))
+    
+    # OPRAVENO: Inteligentní rozestup osy Y, aby se popisky nikdy nepřekrývaly
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=8))
 
     thetas = np.linspace(0, theta_max, 200)
     forces_n = np.array([F_hand(t) for t in thetas])
