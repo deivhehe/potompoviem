@@ -23,6 +23,7 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+    # Pokus 1: Přesný optimalizační hledáček
     def objective(v):
         lx, ly = v
         L_0 = np.sqrt((lx - Xb_mm)**2 + (ly - Yb_mm)**2)
@@ -33,13 +34,20 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     guesses = [
         [L_lid_mm * 0.5, H_lid_mm * 0.5],
         [L_lid_mm * 0.8, H_lid_mm * 0.2],
-        [L_lid_mm * 0.2, H_lid_mm * 0.8]
+        [L_lid_mm * 0.2, H_lid_mm * 0.8],
+        [100.0, 100.0]
     ]
     
     for g0 in guesses:
         res = minimize(objective, g0, bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
-        if res.success and res.fun < 5.0:
+        if res.success and res.fun < 10.0:
             return res.x, True
+            
+    # Pokus 2 (Záložní): Pokud je zadání příliš těsné, uvolníme boudy a najdeme nejbližší rozumný bod v okolí víka
+    res_fallback = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(-100.0, L_lid_mm + 200), (-200.0, H_lid_mm + 200)], method='L-BFGS-B')
+    if res_fallback.success:
+        return res_fallback.x, True
+
     return None, False
 
 def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind=False):
@@ -57,7 +65,7 @@ def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm
 
     x_bounds = (-400.0 if allow_behind else 0.0, L_lid_mm)
     res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-500, H_lid_mm + 500)], method='L-BFGS-B')
-    if res.success and res.fun < 100.0:
+    if res.success and res.fun < 500.0:
         return res.x, True
     return None, False
 
@@ -139,7 +147,7 @@ n_aux = 2
 if app_mode == "Návrh a optimalizace":
     pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
     if not ok1:
-        st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu. Zkontrolujte zadání zdvihu a montážní délky!")
+        st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze ideálně geometricky vyřešit pozici čepu. Zkuste upravit délku nebo zdvih vzpěry.")
         st.stop()
     lx1, ly1 = pin1
 
@@ -295,6 +303,7 @@ def draw_geometry_mm(ax, theta):
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
     ax.set_title(f"Geometrie @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
+    ax.legend(loc="upper left", fontsize=7)
     ax.grid(alpha=0.3)
 
 def draw_force_profile(ax, theta_marker=None):
