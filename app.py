@@ -6,29 +6,17 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
+# CSS styly pro tisk (zmenšení celého obsahu, aby se vešel na 1 stránku)
 st.markdown("""
     <style>
     @media print {
-        /* Povolení tisku postranního panelu */
-        [data-testid="stSidebar"] {
-            display: block !important;
-            width: 30% !important;
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-        }
-        /* Přizpůsobení hlavní části vedle panelu */
-        [data-testid="stMain"] {
-            width: 70% !important;
-            margin-left: 32% !important;
-        }
-        /* Skrytí tlačítek pro tisk a záhlaví prohlížeče */
         header, footer, .stButton {
             display: none !important;
         }
-        /* Měřítko stránky, aby se vše vešlo na 1 list A4 */
         body {
-            zoom: 65%;
+            transform: scale(0.75);
+            transform-origin: top left;
+            width: 133% !important;
         }
     }
     </style>
@@ -454,7 +442,7 @@ col_force.pyplot(fig2)
 # ----------------------------------------------------------------------
 st.divider()
 st.subheader("📄 Uložení protokolu do PDF")
-st.success("💡 Pro uložení kompletního výsledku včetně grafů a hodnot jednoduše stiskněte klávesovou zkratku **Ctrl + P** (na Macu **Cmd + P**) a v tiskovém dialogu vyberte **Uložit jako PDF**.")
+st.success("💡 Pro uložení kompletního výsledku stiskněte klávesovou zkratku **Ctrl + P** (na Macu **Cmd + P**), v nastavení tisku zvolte orientaci **Na šířku (Landscape)** a uložte jako PDF.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
