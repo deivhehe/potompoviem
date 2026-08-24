@@ -164,8 +164,8 @@ if use_aux:
     st.sidebar.header("Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 500.0, 5.0)
-    S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
+    L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 590.0, 5.0)
+    S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 120.0, 5.0)
 
 # Volitelná ruční úprava čepů
 st.sidebar.header("8) Interaktivní úprava čepů")
@@ -198,7 +198,7 @@ default_lx1, default_ly1 = pin_def if ok_def else (lid_length * 0.5, lid_height 
 
 if use_aux:
     pin2, ok2 = solve_pin_custom(Xb2, Yb2, L_min_2, S2, theta_max, lid_length, lid_height, allow_behind=True)
-    default_lx2, default_ly2 = pin2 if ok2 else (0.0, 0.0)
+    default_lx2, default_ly2 = pin2 if ok2 else (100.0, 100.0)
 else:
     default_lx2, default_ly2 = 0.0, 0.0
 
@@ -207,8 +207,9 @@ else:
 # ----------------------------------------------------------------------
 if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
-    st.markdown("### 🎛️ Volitelné ladění pozic čepů po dráhách (kružnicích) zavřených vzpěr")
+    st.markdown("### 🎛️ Volitelné ladění pozic čepů po dráhách (kružnicích) vzpěr")
     
+    # Hlavní vzpěra - slider X
     min_x1 = max(0.0, Xb1 - L0_1)
     max_x1 = min(lid_length, Xb1 + L0_1)
     default_x1 = float(np.clip(default_lx1, min_x1, max_x1))
@@ -220,6 +221,7 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     if ly1 > lid_height + 300 or ly1 < -300:
         ly1 = Yb1 - np.sqrt(max(0.0, inner_val1))
 
+    # Pomocná vzpěra - slider X (OPRAVENO: používá L_min_2 místo L0_1)
     if use_aux:
         min_x2 = max(-400.0, Xb2 - L_min_2)
         max_x2 = min(lid_length, Xb2 + L_min_2)
