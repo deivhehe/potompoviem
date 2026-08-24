@@ -381,7 +381,10 @@ if enable_manual_pin:
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
         geom_L2_0 = np.sqrt((lx2 - Xb2) ** 2 + (ly2 - Yb2) ** 2)
-        st.info(f"💡 Pomocná vzpěra: minimální délka (zavřený stav) = **{L2_min_input:.1f} mm** | geometrická vzdálenost čepů = **{geom_L2_0:.1f} mm**")
+        st.info(
+            f"💡 Mechanický rozsah vzpěry: **{L2_min_input:.0f}–{L2_min_input + S2:.0f} mm** "
+            f"(zdvih {S2:.0f} mm) | aktuální geometrická vzdálenost čepů @0° = **{geom_L2_0:.1f} mm**"
+        )
     else:
         lx2, ly2 = 0.0, 0.0
 
@@ -405,18 +408,10 @@ if use_aux:
     tol = 0.5
     used_stroke = L2_travel_max - L2_travel_min
 
-    # Vzdálenost čepů @0° musí odpovídat deklarované minimální délce vzpěry -
-    # jinak je zadání vnitřně nekonzistentní (typicky při ručním posunu čepu).
-    geom_L2_at_0 = np.sqrt((lx2 - Xb2) ** 2 + (ly2 - Yb2) ** 2)
-    if abs(geom_L2_at_0 - L2_min_input) > max(3.0, 0.02 * L2_min_input):
-        st.error(
-            f"❌ Geometrická vzdálenost čepů pomocné vzpěry při zavřeném víku je "
-            f"{geom_L2_at_0:.1f} mm, ale zadaná minimální délka vzpěry @0° je "
-            f"{L2_min_input:.0f} mm. Tyto hodnoty musí být stejné - buď posuňte polohu "
-            f"čepu/vany tak, aby vzdálenost @0° vyšla {L2_min_input:.0f} mm, nebo upravte "
-            f"pole „Minimální délka pomocné vzpěry @0°“ na {geom_L2_at_0:.0f} mm."
-        )
-    elif L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
+    # Jediná platná podmínka: geometrická vzdálenost čepů musí být KDEKOLI na dráze
+    # (včetně theta=0°) uvnitř mechanického rozsahu vzpěry [L2_min_input, L2_min_input+S2].
+    # Není potřeba, aby se rovnala L2_min_input přesně při theta=0 - to je jen dolní mez.
+    if L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
         st.warning(
             f"⚠️ Pomocná vzpěra by během otevírání musela mít délku "
             f"{L2_travel_min:.0f}–{L2_travel_max:.0f} mm (min. při {deg_at_min:.0f}°, max. při {deg_at_max:.0f}°), "
