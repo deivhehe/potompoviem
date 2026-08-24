@@ -262,9 +262,12 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
         L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        L_max2 = np.sqrt((rotate_mm(lx2, ly2, theta_max)[0] - Xb2)**2 + (rotate_mm(lx2, ly2, theta_max)[1] - Yb2)**2)
-        S2_est = max(abs(L_max2 - L_min_2), 10.0)
-        Fa_actual = get_strut_force_at_length(L2, L_min_2, S2_est, Fa_nom)
+        # REÁLNÁ DÉLKA POMOCNÉ VZPĚRY: zohledňuje skutečnou pozici v zavřeném stavu a při max otevření
+        L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
+        L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
+        S2_real = max(abs(L2_max - L2_0), 10.0)
+        Fa_actual = get_strut_force_at_length(L2, min(L2_0, L2_max), S2_real, Fa_nom)
 
     return Fm_actual, Fa_actual
 
@@ -400,8 +403,6 @@ def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     ax.set_xlim(0, 110)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
-    
-    # OPRAVENO: Inteligentní rozestup osy Y, aby se popisky nikdy nepřekrývaly
     ax.yaxis.set_major_locator(ticker.MaxNLocator(nbins=8))
 
     thetas = np.linspace(0, theta_max, 200)
