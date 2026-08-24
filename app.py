@@ -46,7 +46,7 @@ STRUT_TYPES = {
     "Typ G6/15 (nárůst 35 %)": 0.35,
     "Typ G8/19 (nárůst 35 %)": 0.35,
     "Typ G10/23 (nárůst 35 %)": 0.35,
-    "Typ G10/14 (nárůst 50 %)": 0.50,
+    "Typ G14/28 (nárůst 50 %)": 0.50,
     "Typ G20/40 (nárůst 35 %)": 0.35,
     "Typ G22/40 (nárůst 45 %)": 0.45,
     "Typ G25/55 (nárůst 35 %)": 0.35,
@@ -209,7 +209,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů po dráhách (kružnicích) zavřených vzpěr")
     
-    # Hlavní vzpěra - slider X
     min_x1 = max(0.0, Xb1 - L0_1)
     max_x1 = min(lid_length, Xb1 + L0_1)
     default_x1 = float(np.clip(default_lx1, min_x1, max_x1))
@@ -221,7 +220,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     if ly1 > lid_height + 300 or ly1 < -300:
         ly1 = Yb1 - np.sqrt(max(0.0, inner_val1))
 
-    # Pomocná vzpěra - slider X (pokud je aktivní)
     if use_aux:
         min_x2 = max(-400.0, Xb2 - L_min_2)
         max_x2 = min(lid_length, Xb2 + L_min_2)
