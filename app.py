@@ -7,7 +7,6 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
-# CSS styly pro finální perfektní tisk
 st.markdown("""
     <style>
     @media print {
@@ -74,23 +73,10 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         L_max = np.sqrt((Xp2 - Xb_mm)**2 + (Yp2 - Yb_mm)**2)
         return (L_0 - L0_mm)**2 + (L_max - (L0_mm + S_mm))**2
 
-    guesses = [
-        [L_lid_mm * 0.5, H_lid_mm * 0.5],
-        [L_lid_mm * 0.8, H_lid_mm * 0.2],
-        [L_lid_mm * 0.2, H_lid_mm * 0.8],
-        [100.0, 100.0]
-    ]
-    
-    for g0 in guesses:
-        res = minimize(objective, g0, bounds=[(50.0, L_lid_mm), (10.0, H_lid_mm)], method='L-BFGS-B')
-        if res.success and res.fun < 10.0:
-            return res.x, True
-            
-    res_fallback = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(10.0, L_lid_mm + 200), (-100.0, H_lid_mm + 200)], method='L-BFGS-B')
-    if res_fallback.success:
-        return res_fallback.x, True
-
-    return None, False
+    res = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(10.0, L_lid_mm), (10.0, H_lid_mm)], method='L-BFGS-B')
+    if res.success:
+        return res.x, True
+    return [L_lid_mm * 0.5, H_lid_mm * 0.5], False
 
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
     f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
@@ -162,7 +148,6 @@ if use_aux:
     L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 500.0, 5.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
-# Ovládání animace
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
     st.session_state.anim_deg = 0.0
@@ -181,11 +166,10 @@ if theta_disp_deg != st.session_state.anim_deg:
     st.session_state.anim_deg = theta_disp_deg
 
 # ----------------------------------------------------------------------
-# Výpočet výchozího/optimalizovaného čepu
+# Výpočet výchozího optimálního čepu
 # ----------------------------------------------------------------------
 theta_max = np.radians(theta_max_deg)
 n_main, n_aux = 2, 2
-
 pin_def, ok_def = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
 default_lx, default_ly = pin_def if ok_def else (lid_length * 0.5, lid_height * 0.5)
 
@@ -196,15 +180,27 @@ else:
     lx2, ly2 = 0.0, 0.0
 
 # ----------------------------------------------------------------------
-# Hlavní plocha
+# Hlavní plocha a interaktivní vazba čepu na kružnici
 # ----------------------------------------------------------------------
 st.title(f"🔧 {app_mode}")
+st.markdown("### 🎛️ Interaktivní ladění pozice čepu po dráze (kružnici) zavřené vzpěry")
 
-# Interaktivní jemné doladění čepu přímo pod nadpisem/výsledky
-st.markdown("### 🎛️ Interaktivní ladění pozice čepu na víku")
-col_slider1, col_slider2 = st.columns(2)
-lx1 = col_slider1.slider("Čep na víku – Hlavní X (mm)", 0.0, float(lid_length), float(default_lx), 1.0)
-ly1 = col_slider2.slider("Čep na víku – Hlavní Y (mm)", 0.0, float(lid_height), float(default_ly), 1.0)
+# Povolený rozsah pro X na kružnici
+min_x_val = max(0.0, Xb1 - L0_1)
+max_x_val = min(lid_length, Xb1 + L0_1)
+default_x_val = float(np.clip(default_lx, min_x_val, max_x_val))
+
+# Uživatel hýbe pouze X, Y se automaticky dopočítá z rovnice kružnice: (X - Xb1)^2 + (Y - Yb1)^2 = L0_1^2
+lx1 = st.slider("Pozici čepu – Hlavní X na víku (mm)", min_value=float(min_x_val), max_value=float(max_x_val), value=default_x_val, step=1.0)
+
+# Automatický výpočet Y tak, aby vzpěra měla přesně délku L0_1
+inner_val = L0_1**2 - (lx1 - Xb1)**2
+ly1 = Yb1 + np.sqrt(max(0.0, inner_val))
+if ly1 > lid_height + 200 or ly1 < -200:
+    # Pokud by vyšla druhá větev kružnice, zkusíme mínus
+    ly1 = Yb1 - np.sqrt(max(0.0, inner_val))
+
+st.info(f"💡 Automaticky dopočítaná souřadnice **Y čepu na víku: {ly1:.1f} mm** (zaručuje pevnou délku zavřené vzpěry $L_0$ = {L0_1} mm)")
 
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
@@ -290,7 +286,6 @@ def calc_F_hand_internal(th, Fm_nom, Fa_nom):
 def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
-# Metriky výsledků
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Jmenovitá síla F1 hlavní (1 ks)", f"{F_main:.0f} N")
 c2.metric("Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
