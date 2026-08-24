@@ -338,7 +338,7 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2, ly2 = 0.0, 0.0
 
     st.markdown("---")
-    force_offset_at_0 = st.slider("Potřebná síla k zavření", -200.0, 200.0, 0.0, 5.0)
+    force_offset_at_0 = st.slider("Cílená síla na madlu při otevření @0° (N) [kladná = tlačit, záporná = drží samo]", -200.0, 200.0, 0.0, 5.0)
 else:
     st.title(f"🔧 {app_mode}")
     lx1, ly1 = default_lx1, default_ly1
@@ -364,7 +364,7 @@ c1.metric("Zadaná síla hlavní vzpěry - 1ks", f"{F_main:.0f} N")
 c2.metric("Zadaná síla pomocné vzpěry - 1ks" if use_aux else "Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
-c4.metric("Síla na madlu @max (rezerva)", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
+c4.metric("Potřebná síla k zavření", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
