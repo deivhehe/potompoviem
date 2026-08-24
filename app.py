@@ -85,11 +85,11 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     ]
     
     for g0 in guesses:
-        res = minimize(objective, g0, bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
+        res = minimize(objective, g0, bounds=[(50.0, L_lid_mm), (10.0, H_lid_mm)], method='L-BFGS-B')
         if res.success and res.fun < 10.0:
             return res.x, True
             
-    res_fallback = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(-100.0, L_lid_mm + 200), (-200.0, H_lid_mm + 200)], method='L-BFGS-B')
+    res_fallback = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(10.0, L_lid_mm + 200), (-100.0, H_lid_mm + 200)], method='L-BFGS-B')
     if res_fallback.success:
         return res_fallback.x, True
 
@@ -108,8 +108,8 @@ def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm
             pen += (min(abs(L_max_angle - L_min_mm), abs(L_max_angle - (L_min_mm + S_mm))))**2 * 10.0
         return (L_0 - L_min_mm)**2 + pen
 
-    x_bounds = (-400.0 if allow_behind else 0.0, L_lid_mm)
-    res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-500, H_lid_mm + 500)], method='L-BFGS-B')
+    x_bounds = (-400.0 if allow_behind else 50.0, L_lid_mm)
+    res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (10, H_lid_mm + 500)], method='L-BFGS-B')
     if res.success and res.fun < 500.0:
         return res.x, True
     return None, False
@@ -311,21 +311,21 @@ if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_cust
 
     best_res = None
     best_err = 1e18
+    # Startovní odhady posunuté mimo nulové souřadnice, aby nedocházelo k zachycení na okraji
     start_guesses = [
-        [lid_length * 0.5, lid_height * 0.5],
-        [lid_length * 0.3, lid_height * 0.7],
-        [lid_length * 0.7, lid_height * 0.3],
-        [lid_length * 0.2, lid_height * 0.2],
-        [lid_length * 0.8, lid_height * 0.8]
+        [lid_length * 0.4, lid_height * 0.4],
+        [lid_length * 0.6, lid_height * 0.5],
+        [lid_length * 0.3, lid_height * 0.6],
+        [lid_length * 0.5, lid_height * 0.7]
     ]
     
     for g in start_guesses:
-        res = minimize(design_objective, g, bounds=[(0.0, lid_length), (0.0, lid_height)], method='L-BFGS-B')
+        res = minimize(design_objective, g, bounds=[(50.0, lid_length), (20.0, lid_height)], method='L-BFGS-B')
         if res.success and res.fun < best_err:
             best_err = res.fun
             best_res = res
 
-    if best_res is not None:
+    if best_res is not None and best_res.fun < 1000.0:
         lx1, ly1 = best_res.x
     else:
         pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
