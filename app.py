@@ -177,7 +177,7 @@ if use_aux:
 
 # Volitelná ruční úprava čepů
 st.sidebar.header("8) Interaktivní úprava čepů")
-enable_manual_pid = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
+enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
 
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
@@ -213,7 +213,7 @@ else:
 # ----------------------------------------------------------------------
 # Určení pozic čepů (hlavní X slider s Y dopočtem, pomocná X i Y slidery)
 # ----------------------------------------------------------------------
-if enable_manual_pid and app_mode == "Návrh a optimalizace":
+if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů na víku")
     
@@ -235,16 +235,12 @@ if enable_manual_pid and app_mode == "Návrh a optimalizace":
         lx2 = col_p1.slider("Čep pomocné vzpěry – X (mm)", min_value=-400.0, max_value=float(lid_length + 200.0), value=float(default_lx2), step=1.0)
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
+        # Reálné délky pomocné vzpěry vypočtené z aktuální pozice čepů
         cur_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         cur_L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
         
-        if not (L_min_2 <= cur_L2_0 <= L_min_2 + S2):
-            st.sidebar.warning(f"⚠️ Pomocná @0°: délka {cur_L2_0:.1f} mm je mimo rozsah vzpěry ({L_min_2} až {L_min_2 + S2} mm)!")
-        if not (L_min_2 <= cur_L2_max <= L_min_2 + S2):
-            st.sidebar.warning(f"⚠️ Pomocná @max: délka {cur_L2_max:.1f} mm je mimo rozsah vzpěry ({L_min_2} až {L_min_2 + S2} mm)!")
-        
-        st.info(f"💡 Pomocná vzpěra: délka v zavřeném stavu = **{cur_L2_0:.1f} mm** (min: {L_min_2}) | délka v max. otevření = **{cur_L2_max:.1f} mm** (max: {L_min_2 + S2})")
+        st.info(f"💡 Pomocná vzpěra (reálná dle čepu): délka v zavřeném stavu (@0°) = **{cur_L2_0:.1f} mm** | délka v max. otevření (@max) = **{cur_L2_max:.1f} mm** | reálný zdvih = **{abs(cur_L2_max - cur_L2_0):.1f} mm**")
     else:
         lx2, ly2 = 0.0, 0.0
 else:
@@ -276,11 +272,15 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
         L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        # Použijeme reálné rozpětí délek podle aktuální pozice čepu
+        L2_0_real = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
-        L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
-        S2_real = max(abs(L2_max - L2_0), 10.0)
-        Fa_actual = get_strut_force_at_length(L2, min(L2_0, L2_max), S2_real, Fa_nom, progression_rate_aux)
+        L2_max_real = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
+        
+        L_min_effective = min(L2_0_real, L2_max_real)
+        S2_real = max(abs(L2_max_real - L2_0_real), 10.0)
+        
+        Fa_actual = get_strut_force_at_length(L2, L_min_effective, S2_real, Fa_nom, progression_rate_aux)
 
     return Fm_actual, Fa_actual
 
@@ -294,7 +294,6 @@ def solve_forces():
             if Fm_nom < 10 or Fa_nom < 10:
                 return 1e12
             
-            # Vynucení poměru sil přesně podle slideru (silná váha)
             total_f = Fm_nom + Fa_nom
             ratio_actual = Fm_nom / (total_f + 1e-6)
             ratio_target = force_ratio / 100.0
