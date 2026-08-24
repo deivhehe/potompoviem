@@ -399,7 +399,9 @@ def draw_geometry_mm(ax, theta):
     corners_global = [rotate_mm(lx, ly, theta) for lx, ly in corners_local]
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
-    ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
+    
+    # Zmenšená tloušťka obrysu víka na polovinu (0.75 místo 1.5)
+    ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=0.75, zorder=3)
 
     # Pant
     ax.plot(0, 0, "ko", markersize=4, zorder=5)
@@ -416,13 +418,15 @@ def draw_geometry_mm(ax, theta):
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
 
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
-    ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
+    # Zmenšená tloušťka čáry hlavní vzpěry na polovinu (1.5 místo 3)
+    ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=1.5, zorder=4, label="Hlavní vzpěra")
     ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=3.5, zorder=5)
     ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=3.5, zorder=5)
 
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
-        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
+        # Zmenšená tloušťka čáry pomocné vzpěry na polovinu (1.5 místo 3)
+        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=1.5, zorder=4, label="Pomocná vzpěra")
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=3.5, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=3.5, zorder=5)
 
@@ -443,7 +447,6 @@ def draw_geometry_mm(ax, theta):
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
     
-    # Bezpečné otočení popisků osy X, aby se nikdy nepřekrývaly
     for label in ax.get_xticklabels():
         label.set_rotation(20)
         label.set_horizontalalignment('right')
@@ -454,11 +457,8 @@ def draw_geometry_mm(ax, theta):
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     
-    # Osa X úhly do 110° s krokem 10°
     ax.set_xlim(0, 110)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
-    
-    # Síly s krokem po 10 N
     ax.yaxis.set_major_locator(ticker.MultipleLocator(10))
 
     thetas = np.linspace(0, theta_max, 200)
