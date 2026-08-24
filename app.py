@@ -26,15 +26,26 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
 
 
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
+    # Robustnější výpočet: porovnáváme lineární vzdálenosti (sqrt), aby optimalizátor nezkolaboval na obřích číslech
     def objective(v):
         lx, ly = v
-        l1 = (lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2 - L0_mm ** 2
+        L_0 = np.sqrt((lx - Xb_mm)**2 + (ly - Yb_mm)**2)
         Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        l2 = (Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2 - (L0_mm + S_mm) ** 2
-        return l1**2 + l2**2
-    res = minimize(objective, [L_lid_mm * 0.5, H_lid_mm * 0.5], bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
-    if res.success and res.fun < 1.0:
-        return res.x, True
+        L_max = np.sqrt((Xp2 - Xb_mm)**2 + (Yp2 - Yb_mm)**2)
+        return (L_0 - L0_mm)**2 + (L_max - (L0_mm + S_mm))**2
+
+    # Zkusíme více startovních pozic, abychom se vyhli uváznutí solveru
+    guesses = [
+        [L_lid_mm * 0.5, H_lid_mm * 0.5],
+        [L_lid_mm * 0.8, H_lid_mm * 0.2],
+        [L_lid_mm * 0.2, H_lid_mm * 0.8]
+    ]
+    
+    for g0 in guesses:
+        res = minimize(objective, g0, bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
+        if res.success and res.fun < 5.0: # mírná tolerance pro konvergenci chyb
+            return res.x, True
+            
     return None, False
 
 
@@ -138,7 +149,7 @@ n_aux = 2
 if app_mode == "Návrh a optimalizace":
     pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
     if not ok1:
-        st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu.")
+        st.error("⚠️ Pro zadané parametry hlavní vzpěry nelze geometricky vyřešit pozici čepu. Zkontrolujte zadání zdvihu a montážní délky!")
         st.stop()
     lx1, ly1 = pin1
 
@@ -158,7 +169,7 @@ else:
     else:
         lx2, ly2 = 0.0, 0.0
 
-# Počítání sil a momentů pro obě varianty funguje totožně (optimalizuje síly na zadanou/vyřešenou geometrii)
+# Počítání sil a momentů pro obě varianty funguje totožně
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
 
