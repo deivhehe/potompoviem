@@ -6,17 +6,31 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
-# CSS styly pro tisk
+# CSS styly pro perfektní tisk (zarovnání doleva, roztažení a zmenšení)
 st.markdown("""
     <style>
     @media print {
-        header, footer, .stButton {
+        /* Skrytí nepotřebných prvků Streamlitu (hlavička, patička, tlačítka) */
+        header, footer, .stButton, .viewerBadge_container__1QSob, [data-testid="stSidebar"] {
             display: none !important;
         }
+        /* Zrušení odsazení a mezer, roztažení obsahu na celou šířku */
+        [data-testid="stMain"] {
+            margin-left: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+        }
+        .block-container {
+            max-width: 100% !important;
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        /* Použití zoomu (přepočítá reálně layout, na rozdíl od scale) - zaručí, že se vejde i spodek */
         body {
-            transform: scale(0.68);
-            transform-origin: top left;
-            width: 145% !important;
+            zoom: 65% !important;
         }
     }
     </style>
@@ -368,9 +382,10 @@ if theta_dead is not None:
 st.divider()
 
 col_geo, col_force = st.columns(2)
-fig1, ax1 = plt.subplots(figsize=(4, 4))
-fig2, ax2 = plt.subplots(figsize=(4, 4))
-common_adjust = {'left': 0.2, 'bottom': 0.2, 'right': 0.95, 'top': 0.9}
+# Mírně rozšířený poměr stran pro lepší usazení na šířku
+fig1, ax1 = plt.subplots(figsize=(5, 3.8))
+fig2, ax2 = plt.subplots(figsize=(5, 3.8))
+common_adjust = {'left': 0.15, 'bottom': 0.15, 'right': 0.95, 'top': 0.9}
 fig1.subplots_adjust(**common_adjust)
 fig2.subplots_adjust(**common_adjust)
 
@@ -406,7 +421,6 @@ def draw_geometry_mm(ax, theta):
 
     max_dim = max(lid_length, lid_height)
     ax.set_xlim(-max_dim * 0.25, lid_length * 1.2)
-    # Opraveno: Osa Y sahá minimálně do 1000 mm, aby bylo vidět celé víko při otevření
     ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
     ax.set_box_aspect(1)
     ax.invert_xaxis()
@@ -450,7 +464,7 @@ col_force.pyplot(fig2)
 # ----------------------------------------------------------------------
 st.divider()
 st.subheader("📄 Uložení protokolu do PDF")
-st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Všechny vstupní hodnoty, výsledky i grafy se díky rozbalovacímu přehledu vytisknou kompletně na jedinou stránku.")
+st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Všechny vstupní hodnoty, výsledky i grafy se díky rozbalovacímu přehledu vytisknou kompletně na jedinou stránku bez chybějících částí.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
