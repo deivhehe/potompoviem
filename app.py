@@ -148,6 +148,10 @@ if use_aux:
     L_min_2 = st.sidebar.number_input("Min. zasunutá délka pomocné vzpěry (mm)", 30.0, 2000.0, 500.0, 5.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 100.0, 5.0)
 
+# Volitelná ruční úprava čepu
+st.sidebar.header("8) Interaktivní úprava čepu")
+enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozici čepu na dráze (kružnici)", value=False)
+
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
     st.session_state.anim_deg = 0.0
@@ -180,27 +184,27 @@ else:
     lx2, ly2 = 0.0, 0.0
 
 # ----------------------------------------------------------------------
-# Hlavní plocha a interaktivní vazba čepu na kružnici
+# Určení pozice čepu (automatika vs. volitelná ruční úprava)
 # ----------------------------------------------------------------------
-st.title(f"🔧 {app_mode}")
-st.markdown("### 🎛️ Interaktivní ladění pozice čepu po dráze (kružnici) zavřené vzpěry")
-
-# Povolený rozsah pro X na kružnici
-min_x_val = max(0.0, Xb1 - L0_1)
-max_x_val = min(lid_length, Xb1 + L0_1)
-default_x_val = float(np.clip(default_lx, min_x_val, max_x_val))
-
-# Uživatel hýbe pouze X, Y se automaticky dopočítá z rovnice kružnice: (X - Xb1)^2 + (Y - Yb1)^2 = L0_1^2
-lx1 = st.slider("Pozici čepu – Hlavní X na víku (mm)", min_value=float(min_x_val), max_value=float(max_x_val), value=default_x_val, step=1.0)
-
-# Automatický výpočet Y tak, aby vzpěra měla přesně délku L0_1
-inner_val = L0_1**2 - (lx1 - Xb1)**2
-ly1 = Yb1 + np.sqrt(max(0.0, inner_val))
-if ly1 > lid_height + 200 or ly1 < -200:
-    # Pokud by vyšla druhá větev kružnice, zkusíme mínus
-    ly1 = Yb1 - np.sqrt(max(0.0, inner_val))
-
-st.info(f"💡 Automaticky dopočítaná souřadnice **Y čepu na víku: {ly1:.1f} mm** (zaručuje pevnou délku zavřené vzpěry $L_0$ = {L0_1} mm)")
+if enable_manual_pin and app_mode == "Návrh a optimalizace":
+    st.title(f"🔧 {app_mode} (Ruční úprava čepu)")
+    st.markdown("### 🎛️ Volitelné ladění pozice čepu po dráze (kružnici) zavřené vzpěry")
+    
+    min_x_val = max(0.0, Xb1 - L0_1)
+    max_x_val = min(lid_length, Xb1 + L0_1)
+    default_x_val = float(np.clip(default_lx, min_x_val, max_x_val))
+    
+    lx1 = st.slider("Pozici čepu – Hlavní X na víku (mm)", min_value=float(min_x_val), max_value=float(max_x_val), value=default_x_val, step=1.0)
+    
+    inner_val = L0_1**2 - (lx1 - Xb1)**2
+    ly1 = Yb1 + np.sqrt(max(0.0, inner_val))
+    if ly1 > lid_height + 200 or ly1 < -200:
+        ly1 = Yb1 - np.sqrt(max(0.0, inner_val))
+        
+    st.info(f"💡 Automaticky dopočítaná souřadnice **Y čepu na víku: {ly1:.1f} mm** (zaručuje pevnou délku zavřené vzpěry $L_0$ = {L0_1} mm)")
+else:
+    st.title(f"🔧 {app_mode}")
+    lx1, ly1 = default_lx, default_ly
 
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
@@ -292,6 +296,12 @@ c2.metric("Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
 c4.metric("Potřebná síla k zavření @max", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
+
+c5, c6, c7, c8 = st.columns(4)
+c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
+c6.metric("Čep na víku – hlavní Y", f"{ly1:.1f} mm")
+c7.metric("Čep na víku – pomocná X", f"{lx2:.1f} mm" if use_aux else "—")
+c8.metric("Čep na víku – pomocná Y", f"{ly2:.1f} mm" if use_aux else "—")
 
 st.divider()
 
