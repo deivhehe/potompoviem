@@ -178,12 +178,25 @@ if app_mode == "Návrh a optimalizace":
     L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
     S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
     
-    st.sidebar.header("8) Uživatelská úprava sil (Návrh)")
-    use_user_design_forces = st.sidebar.checkbox("Upravit cílové síly a sílu vzpěry ručně", value=False)
-    if use_user_design_forces:
-        user_target_open_f = st.sidebar.number_input("Cílová síla k otevření @0° (N)", -500.0, 2000.0, 50.0, 5.0)
-        user_target_close_f = st.sidebar.number_input("Cílová síla k zavření @max (N)", -1000.0, 1000.0, -50.0, 5.0)
-        user_forced_f1 = st.sidebar.number_input("Vynucená jmenovitá síla F1 vzpěry (N)", 10.0, 10000.0, 500.0, 10.0)
+    st.sidebar.header("8) Pokročilé nastavení v návrhu (3 možnosti)")
+    
+    # 1. Možnost: Nastavení síly vzpěry
+    enable_custom_strut_f = st.sidebar.checkbox("Nastavení síly vzpěry", value=False)
+    user_forced_f1 = 500.0
+    if enable_custom_strut_f:
+        user_forced_f1 = st.sidebar.number_input("Jmenovitá síla F1 hlavní vzpěry (N)", 10.0, 10000.0, 500.0, 10.0)
+
+    # 2. Možnost: Nastavení síly pro otevření
+    enable_custom_open_f = st.sidebar.checkbox("Nastavení síly pro otevření (@0°)", value=False)
+    user_target_open_f = 50.0
+    if enable_custom_open_f:
+        user_target_open_f = st.sidebar.number_input("Cílová síla k otevření víka (N)", -500.0, 2000.0, 50.0, 5.0)
+
+    # 3. Možnost: Nastavení síly pro zavření
+    enable_custom_close_f = st.sidebar.checkbox("Nastavení síly pro zavření (@max)", value=False)
+    user_target_close_f = -50.0
+    if enable_custom_close_f:
+        user_target_close_f = st.sidebar.number_input("Cílová síla k zavření víka (N)", -1000.0, 1000.0, -50.0, 5.0)
 else:
     lx1_in = st.sidebar.number_input("Čep na víku X hlavní (mm)", -500.0, 3000.0, 342.0, 5.0)
     ly1_in = st.sidebar.number_input("Čep na víku Y hlavní (mm)", -500.0, 1000.0, 457.0, 5.0)
@@ -252,14 +265,12 @@ def get_strut_force_at_length(L_current, L_min, S, F_nominal):
     compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
     return F_nominal * (1.0 + progression_rate * compression_ratio)
 
-# Geometrický návrh pozice čepu podle zadaných sil v uživatelském režimu
-if app_mode == "Návrh a optimalizace" and use_user_design_forces:
+# Geometrický návrh pozice čepu podle vybraných uživatelských možností
+if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_custom_open_f or enable_custom_close_f):
     def design_objective(v):
         lx, ly = v
-        # Zkušební vyřešení sil pro tuto pozici čepu [lx, ly]
-        # Spočítáme odpovídající sílu F1 pro danou pozici
+        # Odhad jmenovité síly pro tuto pozici
         def test_f1_obj(f1_guess):
-            # Síla při 0 a theta_max
             Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
             L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
             L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
@@ -267,31 +278,51 @@ if app_mode == "Návrh a optimalizace" and use_user_design_forces:
             d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
             h0 = handle_moment_arm_m(0.0)
             f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
-            return (f_hand_0 - user_target_open_f)**2
+            if enable_custom_open_f:
+                return (f_hand_0 - user_target_open_f)**2
+            return 0.0
 
-        # Pokusíme se najít odpovídající silové poměry
-        res_f1 = minimize(test_f1_obj, [user_forced_f1], bounds=[(10, 10000)], method='L-BFGS-B')
-        current_f1 = res_f1.x[0]
+        if enable_custom_strut_f:
+            current_f1 = user_forced_f1
+        else:
+            res_f1 = minimize(test_f1_obj, [500.0], bounds=[(10, 10000)], method='L-BFGS-B')
+            current_f1 = res_f1.x[0]
 
-        # Ověření sil v koncových polohách
-        Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
-        L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
-        L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-        Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, current_f1)
-        d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
-        h0 = handle_moment_arm_m(0.0)
-        f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
+        # Sestavení chybové funkce podle toho, které možnosti uživatel zaškrtnul
+        err = 0.0
+        
+        # 1. Kontrola síly vzpěry
+        if enable_custom_strut_f:
+            err += (current_f1 - user_forced_f1)**2 * 0.1
 
-        Xpm, Ypm = rotate_mm(lx, ly, theta_max)
-        Lmax = np.sqrt((Xpm - Xb1)**2 + (Ypm - Yb1)**2)
-        Fmm = get_strut_force_at_length(Lmax, min(L_min_est, Lmax), S1, current_f1)
-        dm = signed_moment_arm_mm(Xb1, Yb1, lx, ly, theta_max)
-        hm = handle_moment_arm_m(theta_max)
-        f_hand_max = -(Tg(theta_max) + n_main * Fmm * dm) / hm
+        # 2. Kontrola síly pro otevření (@0°)
+        if enable_custom_open_f:
+            Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
+            L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
+            L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
+            Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, current_f1)
+            d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
+            h0 = handle_moment_arm_m(0.0)
+            f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
+            err += (f_hand_0 - user_target_open_f)**2 * 10.0
 
-        # Pokuta za odchylku od uživatelských sil + penalizace na sílu F1
-        pen = (current_f1 - user_forced_f1)**2 * 0.1
-        return (f_hand_0 - user_target_open_f)**2 + (f_hand_max - user_target_close_f)**2 + pen
+        # 3. Kontrola síly pro zavření (@max)
+        if enable_custom_close_f:
+            Xpm, Ypm = rotate_mm(lx, ly, theta_max)
+            Lmax = np.sqrt((Xpm - Xb1)**2 + (Ypm - Yb1)**2)
+            L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
+            Fmm = get_strut_force_at_length(Lmax, min(L_min_est, Lmax), S1, current_f1)
+            dm = signed_moment_arm_mm(Xb1, Yb1, lx, ly, theta_max)
+            hm = handle_moment_arm_m(theta_max)
+            f_hand_max = -(Tg(theta_max) + n_main * Fmm * dm) / hm
+            err += (f_hand_max - user_target_close_f)**2 * 10.0
+
+        # Pokud nezaškrtnul nic, spadne to do výchozího chování rozměrového návrhu
+        if not (enable_custom_strut_f or enable_custom_open_f or enable_custom_close_f):
+            pin_def, _ = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+            err += (lx - pin_def[0])**2 + (ly - pin_def[1])**2
+
+        return err
 
     res_design = minimize(design_objective, [lid_length * 0.5, lid_height * 0.5], bounds=[(0.0, lid_length), (0.0, lid_height)], method='L-BFGS-B')
     if res_design.success:
@@ -350,12 +381,12 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     return Fm_actual, Fa_actual
 
 def solve_forces():
-    if use_custom_forces or (app_mode == "Návrh a optimalizace" and 'use_user_design_forces' in locals() and use_user_design_forces):
-        if app_mode == "Návrh a optimalizace" and 'use_user_design_forces' in locals() and use_user_design_forces:
-            return user_forced_f1, (300.0 if use_aux else 0.0)
+    if use_custom_forces:
         Fm = custom_f_main
         Fa = custom_f_aux if use_aux else 0.0
         return Fm, Fa
+    if app_mode == "Návrh a optimalizace" and enable_custom_strut_f:
+        return user_forced_f1, (300.0 if use_aux else 0.0)
 
     def objective(forces):
         if use_aux:
