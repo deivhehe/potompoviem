@@ -6,6 +6,34 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
+st.markdown("""
+    <style>
+    @media print {
+        /* Povolení tisku postranního panelu */
+        [data-testid="stSidebar"] {
+            display: block !important;
+            width: 30% !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+        /* Přizpůsobení hlavní části vedle panelu */
+        [data-testid="stMain"] {
+            width: 70% !important;
+            margin-left: 32% !important;
+        }
+        /* Skrytí tlačítek pro tisk a záhlaví prohlížeče */
+        header, footer, .stButton {
+            display: none !important;
+        }
+        /* Měřítko stránky, aby se vše vešlo na 1 list A4 */
+        body {
+            zoom: 65%;
+        }
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 G = 9.81  # m/s^2
 
 STRUT_TYPES = {
