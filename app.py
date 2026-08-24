@@ -132,15 +132,25 @@ st.sidebar.header("5) Konfigurace vzpěr a nárůst síly")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
-strut_type_key = st.sidebar.selectbox("Typ vzpěry (progresivita)", list(STRUT_TYPES.keys()))
-progression_rate = STRUT_TYPES[strut_type_key]
-if strut_type_key == "Vlastní koeficient nárůstu":
-    progression_rate = st.sidebar.slider("Vlastní nárůst síly (%)", 0.0, 1.0, 0.35, 0.05)
+# Výběr typu hlavní vzpěry
+strut_type_main_key = st.sidebar.selectbox("Typ hlavní vzpěry (progresivita)", list(STRUT_TYPES.keys()))
+progression_rate_main = STRUT_TYPES[strut_type_main_key]
+if strut_type_main_key == "Vlastní koeficient nárůstu":
+    progression_rate_main = st.sidebar.slider("Vlastní nárůst hlavní vzpěry (%)", 0.0, 1.0, 0.35, 0.05)
+
+# Výběr typu pomocné vzpěry (pokud je aktivní)
+if use_aux:
+    strut_type_aux_key = st.sidebar.selectbox("Typ pomocné vzpěry (progresivita)", list(STRUT_TYPES.keys()))
+    progression_rate_aux = STRUT_TYPES[strut_type_aux_key]
+    if strut_type_aux_key == "Vlastní koeficient nárůstu":
+        progression_rate_aux = st.sidebar.slider("Vlastní nárůst pomocné vzpěry (%)", 0.0, 1.0, 0.35, 0.05)
+else:
+    progression_rate_aux = 0.35
 
 use_custom_forces = False
 if app_mode == "Kontrola existujícího řešení":
     st.sidebar.header("6) Síly vzpěr")
-    use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výпоčet)", value=False)
+    use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výpočet)", value=True)
     if use_custom_forces:
         custom_f_main = st.sidebar.number_input("Jmenovitá síla F1 (1 ks hlavní)", 10.0, 10000.0, 650.0, 10.0)
         if use_aux:
@@ -149,7 +159,6 @@ if app_mode == "Kontrola existujícího řešení":
 if not use_custom_forces:
     if use_aux:
         st.sidebar.header("6) Poměr sil vzpěr")
-        # Výchozí hodnota nastavená na 67 % odpovídá poměru 650 N ku 325 N
         force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 67, 1)
     else:
         force_ratio = 50
@@ -256,14 +265,14 @@ def handle_moment_arm_m(theta):
     r = np.hypot(hx, hy)
     return r * 0.001 if r > 1e-6 else 1e-6
 
-def get_strut_force_at_length(L_current, L_min, S, F_nominal):
+def get_strut_force_at_length(L_current, L_min, S, F_nominal, prog_rate):
     compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
-    return F_nominal * (1.0 + progression_rate * compression_ratio)
+    return F_nominal * (1.0 + prog_rate * compression_ratio)
 
 def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     Xp1, Yp1 = rotate_mm(lx1, ly1, th)
     L1 = np.sqrt((Xp1 - Xb1)**2 + (Yp1 - Yb1)**2)
-    Fm_actual = get_strut_force_at_length(L1, L0_1, S1, Fm_nom)
+    Fm_actual = get_strut_force_at_length(L1, L0_1, S1, Fm_nom, progression_rate_main)
 
     Fa_actual = 0.0
     if use_aux:
@@ -273,7 +282,7 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
         S2_real = max(abs(L2_max - L2_0), 10.0)
-        Fa_actual = get_strut_force_at_length(L2, min(L2_0, L2_max), S2_real, Fa_nom)
+        Fa_actual = get_strut_force_at_length(L2, min(L2_0, L2_max), S2_real, Fa_nom, progression_rate_aux)
 
     return Fm_actual, Fa_actual
 
@@ -331,11 +340,11 @@ def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Potřebná síla hlavní vzpěry - 1ks", f"{F_main:.0f} N")
-c2.metric("Potřebná síla pomocné vzpěry - 1ks" if use_aux else "Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
+c1.metric("Zadaná síla hlavní vzpěry - 1ks", f"{F_main:.0f} N")
+c2.metric("Zadaná síla pomocné vzpěry - 1ks" if use_aux else "Pomocná vzpěra", f"{F_aux:.0f} N" if use_aux else "—")
 c3.metric("Potřebná síla k otevření @0°", f"{F_hand(0.0):.1f} N")
 f_max_val = F_hand(theta_max)
-c4.metric("Potřebná síla k zavření @max", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
+c4.metric("Síla na madlu @max (rezerva)", f"{f_max_val:.1f} N", "Drží víko" if f_max_val < 0 else "tlačí ven")
 
 c5, c6, c7, c8 = st.columns(4)
 c5.metric("Čep na víku – hlavní X", f"{lx1:.1f} mm")
