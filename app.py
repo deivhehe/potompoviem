@@ -1,7 +1,6 @@
 import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 from scipy.optimize import fsolve, brentq, minimize
 import time
 
@@ -16,14 +15,12 @@ def rotate_mm(lx, ly, theta):
     c, s = np.cos(theta), np.sin(theta)
     return lx * c - ly * s, lx * s + ly * c
 
-
 def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     Xp_mm, Yp_mm = rotate_mm(lx_mm, ly_mm, theta)
     L_mm = np.sqrt((Xp_mm - Xb_mm) ** 2 + (Yp_mm - Yb_mm) ** 2)
     if L_mm < 1e-6:
         return 0.0
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
-
 
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     def objective(v):
@@ -43,9 +40,7 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         res = minimize(objective, g0, bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
         if res.success and res.fun < 5.0:
             return res.x, True
-            
     return None, False
-
 
 def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind=False):
     def obj(v):
@@ -66,7 +61,6 @@ def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm
         return res.x, True
     return None, False
 
-
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
     f = lambda th: cg_x_mm * np.cos(th) - cg_y_mm * np.sin(th)
     if f(0.0) * f(theta_max) >= 0:
@@ -75,7 +69,6 @@ def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
         return brentq(f, 1e-6, theta_max)
     except ValueError:
         return None
-
 
 # ----------------------------------------------------------------------
 # UI - Sidebar (Zadávané hodnoty)
@@ -103,8 +96,6 @@ st.sidebar.header("5) Konfigurace vzpěr a optimalizace")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
-max_close_kg = st.sidebar.number_input("Maximální povolená síla pro zavření (kg)", 1.0, 150.0, 15.0, 1.0)
-
 if use_aux:
     force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
 else:
@@ -114,7 +105,6 @@ st.sidebar.header("6) Hlavní vzpěra")
 Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
 Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0)
 
-# Dynamický obsah podle režimu
 if app_mode == "Návrh a optimalizace":
     L0_1 = st.sidebar.number_input("Zasunutá délka hlavní @0° (mm)", 30.0, 2000.0, 618.0, 5.0)
     S1 = st.sidebar.number_input("Zdvih hlavní vzpěry (mm)", 10.0, 1500.0, 500.0, 5.0)
@@ -144,7 +134,6 @@ theta_max = np.radians(theta_max_deg)
 n_main = 2
 n_aux = 2
 
-# Určení pozic čepů (Výpočet VS. Manuální zadání z kontroly)
 if app_mode == "Návrh a optimalizace":
     pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
     if not ok1:
@@ -167,7 +156,6 @@ else:
     else:
         lx2, ly2 = 0.0, 0.0
 
-
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
 
@@ -186,8 +174,6 @@ def calc_F_hand_internal(th, Fm, Fa):
     return -(Tg(th) + Ts_main + Ts_aux) / h_arm
 
 def solve_forces():
-    limit_close_N = -(max_close_kg * G)
-
     def objective(forces):
         if use_aux:
             Fm, Fa = forces
@@ -213,12 +199,6 @@ def solve_forces():
                 moment_vzpěr = n_main * Fm * d1
             moment_tíže = -Tg(th)
             err += (moment_vzpěr - moment_tíže)**2
-
-        # Penalizace: pokud je síla na zavření moc velká (více negativní než limit)
-        f_close = calc_F_hand_internal(theta_max, Fm, Fa)
-        if f_close < limit_close_N:
-            err += (f_close - limit_close_N)**2 * 100000.0
-
         return err + ratio_penalty
 
     if use_aux:
@@ -283,26 +263,19 @@ def draw_geometry_mm(ax, theta):
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
     ys = [p[1] for p in corners_global] + [corners_global[0][1]]
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=1.5, zorder=3)
-
     ax.plot(0, 0, "ko", markersize=8, zorder=5)
-    ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
-
     Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
     ax.plot(Xc, Yc, "o", color="red", markersize=9, zorder=6)
-    ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red", fontsize=9, fontweight='bold')
-
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     ax.plot(hx, hy, "go", markersize=9, zorder=7)
-    ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
-
     Xp1, Yp1 = rotate_mm(lx1, ly1, theta)
-    ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4, label="Hlavní vzpěra")
+    ax.plot([Xb1, Xp1], [Yb1, Yp1], "-", color="#1f77b4", linewidth=3, zorder=4)
     ax.plot(Xb1, Yb1, "s", color="#1f77b4", markersize=7, zorder=5)
     ax.plot(Xp1, Yp1, "^", color="#1f77b4", markersize=7, zorder=5)
 
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, theta)
-        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4, label="Pomocná vzpěra")
+        ax.plot([Xb2, Xp2], [Yb2, Yp2], "-", color="#d62728", linewidth=3, zorder=4)
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=7, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=7, zorder=5)
 
@@ -313,16 +286,13 @@ def draw_geometry_mm(ax, theta):
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
     ax.set_title(f"Geometrie víka @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
-    ax.legend(loc="upper left", fontsize=7)
     ax.grid(alpha=0.3)
-
 
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     thetas = np.linspace(0, theta_max, 200)
     forces_n = np.array([F_hand(t) for t in thetas])
     degs = np.degrees(thetas)
-
     ax.axhline(0, color="black", linewidth=1)
     ax.fill_between(degs, forces_n, 0, where=(forces_n >= 0), color="#ff7f0e", alpha=0.5, label="Nutno tlačit")
     ax.fill_between(degs, forces_n, 0, where=(forces_n < 0), color="#2ca02c", alpha=0.5, label="Vzpěra pomáhá")
@@ -341,7 +311,6 @@ def draw_force_profile(ax, theta_marker=None):
     ax.set_title("Profil síly na madlu", fontsize=10, fontweight='bold')
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
-
 
 if animate:
     placeholder1 = col_geo.empty()
