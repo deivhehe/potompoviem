@@ -262,28 +262,21 @@ def get_strut_force_at_length(L_current, L_min, S, F_nominal):
     compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
     return F_nominal * (1.0 + progression_rate * compression_ratio)
 
-# Vyřešení síly vzpěry F1 předem, pokud je zaškrtnuto
-if app_mode == "Návrh a optimalizace" and enable_custom_strut_f:
-    F_main = user_forced_f1
-else:
-    # Dočasný výpočet pro optimalizaci pozice čepu
-    F_main = 500.0
-
-# Geometrický návrh pozice čepu podle vybraných uživatelských možností
+# Geometrický návrh pozice čepu se stálou vazbou na zadanou zasunutou délku L0_1
 if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_custom_open_f or enable_custom_close_f):
     def design_objective(v):
         lx, ly = v
         
-        # Určení síly F1 pro tuto zkušební pozici čepu
+        # 1. Geometrická penalizace: Vzdálenost čepu od vany při 0° MUSÍ být rovna L0_1
+        dist_at_0 = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
+        geom_err = (dist_at_0 - L0_1)**2 * 100000.0
+
+        # 2. Určení síly F1 pro tuto zkušební pozici
         if enable_custom_strut_f:
             f1_current = user_forced_f1
         else:
-            # Iterativní odhad F1 tak, aby vyhovoval rovnováze
-            def test_f1(f_guess):
-                Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
-                L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
-                L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-                Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f_guess[0])
+            def test_f1(f_val):
+                Fm0 = get_strut_force_at_length(L0_1, L0_1, S1, f_val[0])
                 d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
                 h0 = handle_moment_arm_m(0.0)
                 f_h0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
@@ -294,33 +287,25 @@ if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_cust
             res_f1 = minimize(test_f1, [500.0], bounds=[(10, 10000)], method='L-BFGS-B')
             f1_current = res_f1.x[0]
 
-        err = 0.0
+        err = geom_err
 
-        # Kontrola síly pro otevření (@0°)
+        # 3. Kontrola síly pro otevření (@0°)
         if enable_custom_open_f:
-            Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
-            L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
-            L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-            Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f1_current)
+            Fm0 = get_strut_force_at_length(L0_1, L0_1, S1, f1_current)
             d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
             h0 = handle_moment_arm_m(0.0)
             f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
             err += (f_hand_0 - user_target_open_f)**2 * 10000.0
 
-        # Kontrola síly pro zavření (@max)
+        # 4. Kontrola síly pro zavření (@max)
         if enable_custom_close_f:
             Xpm, Ypm = rotate_mm(lx, ly, theta_max)
             Lmax = np.sqrt((Xpm - Xb1)**2 + (Ypm - Yb1)**2)
-            L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-            Fmm = get_strut_force_at_length(Lmax, min(L_min_est, Lmax), S1, f1_current)
+            Fmm = get_strut_force_at_length(Lmax, L0_1, S1, f1_current)
             dm = signed_moment_arm_mm(Xb1, Yb1, lx, ly, theta_max)
             hm = handle_moment_arm_m(theta_max)
             f_hand_max = -(Tg(theta_max) + n_main * Fmm * dm) / hm
             err += (f_hand_max - user_target_close_f)**2 * 10000.0
-
-        if not (enable_custom_open_f or enable_custom_close_f):
-            pin_def, _ = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
-            err += (lx - pin_def[0])**2 + (ly - pin_def[1])**2
 
         return err
 
@@ -340,7 +325,7 @@ if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_cust
             best_err = res.fun
             best_res = res
 
-    if best_res is not None and best_res.success:
+    if best_res is not None:
         lx1, ly1 = best_res.x
     else:
         pin1, ok1 = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
@@ -377,19 +362,15 @@ else:
 def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     Xp1, Yp1 = rotate_mm(lx1, ly1, th)
     L1 = np.sqrt((Xp1 - Xb1)**2 + (Yp1 - Yb1)**2)
-    L_min1 = np.sqrt((lx1 - Xb1)**2 + (ly1 - Yb1)**2)
-    Xp1_m, Yp1_m = rotate_mm(lx1, ly1, theta_max)
-    L_max1 = np.sqrt((Xp1_m - Xb1)**2 + (Yp1_m - Yb1)**2)
-    S1_est = max(abs(L_max1 - L_min1), 10.0)
-    Fm_actual = get_strut_force_at_length(L1, min(L_min1, L_max1), S1_est, Fm_nom)
+    Fm_actual = get_strut_force_at_length(L1, L0_1, S1, Fm_nom)
 
     Fa_actual = 0.0
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
         L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        L_min2 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         Xp2_m, Yp2_m = rotate_mm(lx2, ly2, theta_max)
         L_max2 = np.sqrt((Xp2_m - Xb2)**2 + (Yp2_m - Yb2)**2)
+        L_min2 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         S2_est = max(abs(L_max2 - L_min2), 10.0)
         Fa_actual = get_strut_force_at_length(L2, min(L_min2, L_max2), S2_est, Fa_nom)
 
@@ -437,13 +418,9 @@ def solve_forces():
             return res.x[0], res.x[1]
         return 500.0, 500.0
     else:
-        # Pokud je zaškrtnuta cílová síla pro otevření, dopočítáme F1 přesně tak, aby seděla na 0°
         if app_mode == "Návrh a optimalizace" and enable_custom_open_f:
             def f1_exact(f_val):
-                Xp0, Yp0 = rotate_mm(lx1, ly1, 0.0)
-                L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
-                L_min_est = np.sqrt((lx1 - Xb1)**2 + (ly1 - Yb1)**2)
-                Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f_val[0])
+                Fm0 = get_strut_force_at_length(L0_1, L0_1, S1, f_val[0])
                 d0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
                 h0 = handle_moment_arm_m(0.0)
                 f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
@@ -477,7 +454,6 @@ def F_hand(theta):
 app_title = "Návrh a kontrola plynových vzpěr víka" if app_mode == "Návrh a optimalizace" else "Kontrola existujícího řešení víka"
 st.title(f"🔧 {app_title}")
 
-# Rozbalovací panel se všemi zadanými hodnotami (pro tisk)
 with st.expander("📋 Kompletní přehled zadaných parametrů (pro tisk)", expanded=True):
     col_inf1, col_inf2, col_inf3 = st.columns(3)
     col_inf1.markdown(f"**Režim:** {app_mode}  \n**Délka víka:** {lid_length} mm  \n**Výška víka:** {lid_height} mm  \n**Hmotnost:** {lid_mass} kg")
@@ -526,16 +502,13 @@ def draw_geometry_mm(ax, theta):
     
     ax.fill(xs, ys, color="#c9a876", alpha=0.6, edgecolor="black", linewidth=0.75, zorder=3)
 
-    # Pant
     ax.plot(0, 0, "ko", markersize=4, zorder=5)
     ax.annotate("Pant", (0, 0), textcoords="offset points", xytext=(-8, -12), fontsize=9, fontweight='bold')
 
-    # Těžiště (CG)
     Xc, Yc = rotate_mm(cg_x_mm, cg_y_mm, theta)
     ax.plot(Xc, Yc, "o", color="red", markersize=4.5, zorder=6)
     ax.annotate("CG", (Xc, Yc), textcoords="offset points", xytext=(6, 6), color="red", fontsize=9, fontweight='bold')
 
-    # Madlo
     hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
     ax.plot(hx, hy, "go", markersize=4.5, zorder=7)
     ax.annotate("Madlo", (hx, hy), textcoords="offset points", xytext=(6, 6), color="green", fontsize=9, fontweight='bold')
@@ -610,7 +583,6 @@ draw_force_profile(ax2, theta_disp)
 col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
-# Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
     if st.session_state.anim_deg >= theta_max_deg:
         st.session_state.anim_deg = 0.0
