@@ -6,22 +6,12 @@ import time
 
 st.set_page_config(page_title="Návrh a kontrola plynových vzpěr víka", layout="wide")
 
-# CSS styly pro tisk (zachování postranního panelu vedle obsahu a zmenšení pro 1 stránku)
+# CSS styly pro tisk (zajištění správného měřítka a zobrazení všeho na 1 list)
 st.markdown("""
     <style>
     @media print {
         header, footer, .stButton {
             display: none !important;
-        }
-        /* Vynucení zobrazení postranního panelu vedle obsahu při tisku */
-        [data-testid="stSidebar"] {
-            display: block !important;
-            width: 25% !important;
-            float: left !important;
-        }
-        [data-testid="stMain"] {
-            width: 73% !important;
-            float: right !important;
         }
         body {
             transform: scale(0.70);
@@ -341,9 +331,16 @@ def F_hand(theta):
     return calc_F_hand_internal(theta, F_main, F_aux)
 
 # ----------------------------------------------------------------------
-# Metrický panel a Vykreslování
+# Hlavní plocha – Výsledky a přehled parametrů
 # ----------------------------------------------------------------------
 st.title(f"🔧 {app_mode}")
+
+# Shrnutí vstupů v tiskovém bloku
+with st.expander("📋 Zobrazení a kontrola zadaných parametrů", expanded=False):
+    col_inf1, col_inf2, col_inf3 = st.columns(3)
+    col_inf1.markdown(f"**Délka víka:** {lid_length} mm  \n**Výška víka:** {lid_height} mm  \n**Hmotnost:** {lid_mass} kg")
+    col_inf2.markdown(f"**Těžiště (X, Y):** {cg_x_mm}, {cg_y_mm} mm  \n**Madlo (X, Y):** {handle_x_mm}, {handle_y_mm} mm  \n**Max. úhel:** {theta_max_deg}°")
+    col_inf3.markdown(f"**Uspořádání:** {config_type}  \n**Typ vzpěry:** {strut_type_key}  \n**Hlavní vana (X, Y):** {Xb1}, {Yb1} mm")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Jmenovitá síla F1 hlavní (1 ks)", f"{F_main:.0f} N")
@@ -448,11 +445,11 @@ col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
 # ----------------------------------------------------------------------
-# Návod pro uložení protokolu do PDF
+# Uložení protokolu do PDF
 # ----------------------------------------------------------------------
 st.divider()
 st.subheader("📄 Uložení protokolu do PDF")
-st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)** – díky tomu se na jednu stranu vejde jak postranní panel se zadáním, tak výsledky a grafy.")
+st.success("💡 Stiskněte **Ctrl + P** (nebo Cmd + P na Macu), v tiskovém okně vyberte orientaci **Na šířku (Landscape)**. Kompletní zadání, výsledky i grafy se díky tomu přehledně vytisknou na jedinou stránku.")
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
