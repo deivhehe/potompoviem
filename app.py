@@ -159,9 +159,38 @@ if use_aux:
         lx2_in = st.sidebar.number_input("Čep na víku X pomocná (mm)", -500.0, 3000.0, 260.0, 5.0)
         ly2_in = st.sidebar.number_input("Čep na víku Y pomocná (mm)", -500.0, 1000.0, 308.0, 5.0)
 
-st.sidebar.header("9) Náhled a animace")
-theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled / ruční posun (°)", 0, theta_max_deg, 0)
-animate = st.sidebar.checkbox("▶️ Spustit plynulou animaci", value=False)
+# ----------------------------------------------------------------------
+# Správa stavu animace (Play / Pause / Slider)
+# ----------------------------------------------------------------------
+st.sidebar.header("9) Ovládání náhledu a animace")
+
+if 'anim_deg' not in st.session_state:
+    st.session_state.anim_deg = 0.0
+
+col_btn1, col_btn2 = st.sidebar.columns(2)
+play_clicked = col_btn1.button("▶ Play")
+pause_clicked = col_btn2.button("⏸ Pause")
+
+if play_clicked:
+    st.session_state.is_playing = True
+if pause_clicked:
+    st.session_state.is_playing = False
+
+if 'is_playing' not in st.session_state:
+    st.session_state.is_playing = False
+
+# Slider spojený se session_state, aby se mohl posouvat automaticky i ručně
+theta_disp_deg = st.sidebar.slider(
+    "Úhel otevření (°)", 
+    0.0, 
+    float(theta_max_deg), 
+    value=float(st.session_state.anim_deg),
+    step=1.0
+)
+
+# Pokud uživatel pohnul sliderem ručně, aktualizujeme stav
+if theta_disp_deg != st.session_state.anim_deg:
+    st.session_state.anim_deg = theta_disp_deg
 
 # ----------------------------------------------------------------------
 # Výpočetní jádro (sdílené)
@@ -388,19 +417,20 @@ def draw_force_profile(ax, theta_marker=None):
     ax.legend(loc="best", fontsize=7)
     ax.grid(alpha=0.3)
 
-if animate:
-    placeholder1 = col_geo.empty()
-    placeholder2 = col_force.empty()
-    for deg in np.linspace(0, theta_max_deg, 40):
-        th = np.radians(deg)
-        draw_geometry_mm(ax1, th)
-        draw_force_profile(ax2, th)
-        placeholder1.pyplot(fig1)
-        placeholder2.pyplot(fig2)
-        time.sleep(0.04)
-else:
-    theta_disp = np.radians(theta_disp_deg)
-    draw_geometry_mm(ax1, theta_disp)
-    draw_force_profile(ax2, theta_disp)
-    col_geo.pyplot(fig1)
-    col_force.pyplot(fig2)
+# Vykreslení aktuálního stavu
+theta_disp = np.radians(st.session_state.anim_deg)
+draw_geometry_mm(ax1, theta_disp)
+draw_force_profile(ax2, theta_disp)
+col_geo.pyplot(fig1)
+col_force.pyplot(fig2)
+
+# Smyčka animace při zapnutém Play
+if st.session_state.is_playing:
+    if st.session_state.anim_deg >= theta_max_deg:
+        st.session_state.anim_deg = 0.0
+    else:
+        st.session_state.anim_deg += 2.0
+        if st.session_state.anim_deg > theta_max_deg:
+            st.session_state.anim_deg = float(theta_max_deg)
+    time.sleep(0.04)
+    st.rerun()
