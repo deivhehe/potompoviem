@@ -140,16 +140,17 @@ if strut_type_key == "Vlastní koeficient nárůstu":
 use_custom_forces = False
 if app_mode == "Kontrola existujícího řešení":
     st.sidebar.header("6) Síly vzpěr")
-    use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výpočet)", value=False)
+    use_custom_forces = st.sidebar.checkbox("Vlastní síla vzpěr (přebít výпоčet)", value=False)
     if use_custom_forces:
-        custom_f_main = st.sidebar.number_input("Jmenovitá síla F1 (1 ks hlavní)", 10.0, 10000.0, 500.0, 10.0)
+        custom_f_main = st.sidebar.number_input("Jmenovitá síla F1 (1 ks hlavní)", 10.0, 10000.0, 650.0, 10.0)
         if use_aux:
-            custom_f_aux = st.sidebar.number_input("Jmenovitá síla F1 (1 ks pomocné)", 10.0, 10000.0, 300.0, 10.0)
+            custom_f_aux = st.sidebar.number_input("Jmenovitá síla F1 (1 ks pomocné)", 10.0, 10000.0, 325.0, 10.0)
 
 if not use_custom_forces:
     if use_aux:
         st.sidebar.header("6) Poměr sil vzpěr")
-        force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
+        # Výchozí hodnota nastavená na 67 % odpovídá poměru 650 N ku 325 N
+        force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 67, 1)
     else:
         force_ratio = 50
 
@@ -209,7 +210,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů na víku")
     
-    # Hlavní vzpěra: X posuvník, Y se dopočítává podle kružnice L0_1
     min_x1 = max(0.0, Xb1 - L0_1)
     max_x1 = min(lid_length, Xb1 + L0_1)
     default_x1 = float(np.clip(default_lx1, min_x1, max_x1))
@@ -221,7 +221,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     if ly1 > lid_height + 300 or ly1 < -300:
         ly1 = Yb1 - np.sqrt(max(0.0, inner_val1))
 
-    # Pomocná vzpěra: samostatné slidery pro X i Y
     if use_aux:
         st.markdown("---")
         st.markdown("#### Pomocná vzpěra – ruční nastavení X a Y")
@@ -229,7 +228,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2 = col_p1.slider("Čep pomocné vzpěry – X (mm)", min_value=-400.0, max_value=float(lid_length + 200.0), value=float(default_lx2), step=1.0)
         ly2 = col_p2.slider("Čep pomocné vzpěry – Y (mm)", min_value=-300.0, max_value=float(lid_height + 300.0), value=float(default_ly2), step=1.0)
         
-        # Kontrola fyzikálních délek pomocné vzpěry a upozornění
         cur_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         cur_L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
