@@ -260,30 +260,24 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom, cur_lx1, cur_ly1, cur_lx2, cu
 
     Fa_actual = 0.0
     if use_aux:
+        # OPRAVA: dřív se tu používal "delta trik" - L2_min_input + (geom_th - geom_0) -
+        # ten mlčky předpokládal, že geometrická vzdálenost čepů při theta=0 se rovná
+        # zadané minimální délce vzpěry L2_min_input. V ručním režimu (a i v auto režimu,
+        # pokud solver nekonverguje přesně) to ale neplatí a vznikají fyzikálně nesmyslné
+        # hodnoty. Fyzická délka vzpěry mezi dvěma čepy je prostě jejich eukleidovská
+        # vzdálenost - žádný přepočet přes theta=0 není potřeba.
         Xp2, Yp2 = rotate_mm(cur_lx2, cur_ly2, th)
-        geom_L2_0 = np.sqrt((cur_lx2 - Xb2)**2 + (cur_ly2 - Yb2)**2)
-        geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        # Fyzická délka vzpěry = pevná minimální délka + geometrická změna vzdálenosti čepů
-        # oproti stavu při theta=0.
-        L2_current = L2_min_input + (geom_L2_th - geom_L2_0)
-
-        # OPRAVA: dřív se tu porovnávalo proti "L2_max_real" odvozenému z polohy
-        # při theta_max, což je špatně jak pro monotónní, tak (a hlavně) pro
-        # nemonotónní trajektorie, kdy se vzpěra nejdřív vysune a pak zase zasune.
-        # Vzpěra má fyzicky PEVNÝ rozsah [L2_min_input, L2_min_input + S2] daný
-        # konstrukcí, nezávisle na tom, kde skončí geometrie při theta_max.
+        L2_current = np.sqrt((Xp2 - Xb2) ** 2 + (Yp2 - Yb2) ** 2)
         Fa_actual = get_strut_force_at_length(L2_current, L2_min_input, S2, Fa_nom, progression_rate_aux)
 
     return Fm_actual, Fa_actual
 
 def aux_strut_travel_mm(cur_lx2, cur_ly2, th_max, n_points=200):
-    """Vrátí (min, max) fyzické délky pomocné vzpěry na celé trajektorii 0..th_max
-    (a úhel, ve kterém nastává minimum/maximum, pro diagnostiku)."""
+    """Vrátí (min, max) SKUTEČNÉ geometrické délky pomocné vzpěry (přímá vzdálenost
+    čep-vana) na celé trajektorii 0..th_max, a úhly, ve kterých min/max nastává."""
     thetas = np.linspace(0.0, th_max, n_points)
     Xp_all, Yp_all = rotate_mm(cur_lx2, cur_ly2, thetas)
-    geom_L2_0 = np.sqrt((cur_lx2 - Xb2) ** 2 + (cur_ly2 - Yb2) ** 2)
-    geom_L2_path = np.sqrt((Xp_all - Xb2) ** 2 + (Yp_all - Yb2) ** 2)
-    lengths = L2_min_input + (geom_L2_path - geom_L2_0)
+    lengths = np.sqrt((Xp_all - Xb2) ** 2 + (Yp_all - Yb2) ** 2)
     imin, imax = int(np.argmin(lengths)), int(np.argmax(lengths))
     return float(lengths.min()), float(lengths.max()), float(np.degrees(thetas[imin])), float(np.degrees(thetas[imax]))
 
@@ -410,7 +404,19 @@ if use_aux:
     L2_allowed_max = L2_min_input + S2
     tol = 0.5
     used_stroke = L2_travel_max - L2_travel_min
-    if L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
+
+    # Vzdálenost čepů @0° musí odpovídat deklarované minimální délce vzpěry -
+    # jinak je zadání vnitřně nekonzistentní (typicky při ručním posunu čepu).
+    geom_L2_at_0 = np.sqrt((lx2 - Xb2) ** 2 + (ly2 - Yb2) ** 2)
+    if abs(geom_L2_at_0 - L2_min_input) > max(3.0, 0.02 * L2_min_input):
+        st.error(
+            f"❌ Geometrická vzdálenost čepů pomocné vzpěry při zavřeném víku je "
+            f"{geom_L2_at_0:.1f} mm, ale zadaná minimální délka vzpěry @0° je "
+            f"{L2_min_input:.0f} mm. Tyto hodnoty musí být stejné - buď posuňte polohu "
+            f"čepu/vany tak, aby vzdálenost @0° vyšla {L2_min_input:.0f} mm, nebo upravte "
+            f"pole „Minimální délka pomocné vzpěry @0°“ na {geom_L2_at_0:.0f} mm."
+        )
+    elif L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
         st.warning(
             f"⚠️ Pomocná vzpěra by během otevírání musela mít délku "
             f"{L2_travel_min:.0f}–{L2_travel_max:.0f} mm (min. při {deg_at_min:.0f}°, max. při {deg_at_max:.0f}°), "
