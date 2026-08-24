@@ -26,7 +26,6 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
 
 
 def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
-    # Robustnější výpočet: porovnáváme lineární vzdálenosti (sqrt), aby optimalizátor nezkolaboval na obřích číslech
     def objective(v):
         lx, ly = v
         L_0 = np.sqrt((lx - Xb_mm)**2 + (ly - Yb_mm)**2)
@@ -34,7 +33,6 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         L_max = np.sqrt((Xp2 - Xb_mm)**2 + (Yp2 - Yb_mm)**2)
         return (L_0 - L0_mm)**2 + (L_max - (L0_mm + S_mm))**2
 
-    # Zkusíme více startovních pozic, abychom se vyhli uváznutí solveru
     guesses = [
         [L_lid_mm * 0.5, H_lid_mm * 0.5],
         [L_lid_mm * 0.8, H_lid_mm * 0.2],
@@ -43,7 +41,7 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
     
     for g0 in guesses:
         res = minimize(objective, g0, bounds=[(0.0, L_lid_mm), (0.0, H_lid_mm)], method='L-BFGS-B')
-        if res.success and res.fun < 5.0: # mírná tolerance pro konvergenci chyb
+        if res.success and res.fun < 5.0:
             return res.x, True
             
     return None, False
@@ -101,17 +99,18 @@ cg_y_mm = st.sidebar.number_input("Těžiště Y (mm)", -500.0, 1000.0, float(np
 st.sidebar.header("4) Rozsah otevření")
 theta_max_deg = st.sidebar.slider("Maximální úhel otevření (°)", 45, 130, 83)
 
-st.sidebar.header("5) Konfigurace vzpěr")
+st.sidebar.header("5) Konfigurace vzpěr a optimalizace")
 config_type = st.sidebar.radio("Typ uspořádání", ["2× hlavní vzpěra", "2× hlavní + 2× pomocná vzpěra"])
 use_aux = (config_type == "2× hlavní + 2× pomocná vzpěra")
 
+max_close_kg = st.sidebar.number_input("Maximální povolená síla pro zavření (kg)", 1.0, 150.0, 15.0, 1.0)
+
 if use_aux:
-    st.sidebar.header("6) Poměr sil vzpěr")
     force_ratio = st.sidebar.slider("Podíl síly hlavní vzpěry (%)", 10, 90, 50, 5)
 else:
     force_ratio = 50
 
-st.sidebar.header("7) Hlavní vzpěra")
+st.sidebar.header("6) Hlavní vzpěra")
 Xb1 = st.sidebar.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0)
 Yb1 = st.sidebar.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0)
 
@@ -124,7 +123,7 @@ else:
     ly1_in = st.sidebar.number_input("Čep na víku Y hlavní (mm)", -500.0, 1000.0, 457.0, 5.0)
 
 if use_aux:
-    st.sidebar.header("8) Pomocná vzpěra (konzolka)")
+    st.sidebar.header("7) Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
     if app_mode == "Návrh a optimalizace":
@@ -134,7 +133,7 @@ if use_aux:
         lx2_in = st.sidebar.number_input("Čep na víku X pomocná (mm)", -500.0, 3000.0, 260.0, 5.0)
         ly2_in = st.sidebar.number_input("Čep na víku Y pomocná (mm)", -500.0, 1000.0, 308.0, 5.0)
 
-st.sidebar.header("9) Náhled")
+st.sidebar.header("8) Náhled")
 theta_disp_deg = st.sidebar.slider("Úhel pro geometrický náhled (°)", 0, theta_max_deg, 0)
 animate = st.sidebar.button("▶️ Animovat otevírání")
 
@@ -162,21 +161,33 @@ if app_mode == "Návrh a optimalizace":
     else:
         lx2, ly2 = 0.0, 0.0
 else:
-    # V režimu kontroly prostě vezmeme to, co uživatel naklikal
     lx1, ly1 = lx1_in, ly1_in
     if use_aux:
         lx2, ly2 = lx2_in, ly2_in
     else:
         lx2, ly2 = 0.0, 0.0
 
-# Počítání sil a momentů pro obě varianty funguje totožně
+
 theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
 
 def Tg(theta):
     return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
 
+def handle_moment_arm_m(theta):
+    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
+    r = np.hypot(hx, hy)
+    return r * 0.001 if r > 1e-6 else 1e-6
+
+def calc_F_hand_internal(th, Fm, Fa):
+    Ts_main = n_main * Fm * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
+    Ts_aux = n_aux * Fa * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
+    h_arm = handle_moment_arm_m(th)
+    return -(Tg(th) + Ts_main + Ts_aux) / h_arm
+
 def solve_forces():
+    limit_close_N = -(max_close_kg * G)
+
     def objective(forces):
         if use_aux:
             Fm, Fa = forces
@@ -202,6 +213,12 @@ def solve_forces():
                 moment_vzpěr = n_main * Fm * d1
             moment_tíže = -Tg(th)
             err += (moment_vzpěr - moment_tíže)**2
+
+        # Penalizace: pokud je síla na zavření moc velká (více negativní než limit)
+        f_close = calc_F_hand_internal(theta_max, Fm, Fa)
+        if f_close < limit_close_N:
+            err += (f_close - limit_close_N)**2 * 100000.0
+
         return err + ratio_penalty
 
     if use_aux:
@@ -217,16 +234,8 @@ def solve_forces():
 
 F_main, F_aux = solve_forces()
 
-def handle_moment_arm_m(theta):
-    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
-    r = np.hypot(hx, hy)
-    return r * 0.001 if r > 1e-6 else 1e-6
-
 def F_hand(theta):
-    Ts_main = n_main * F_main * signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, theta)
-    Ts_aux = n_aux * F_aux * signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, theta) if use_aux else 0.0
-    h_arm = handle_moment_arm_m(theta)
-    return -(Tg(theta) + Ts_main + Ts_aux) / h_arm
+    return calc_F_hand_internal(theta, F_main, F_aux)
 
 # ----------------------------------------------------------------------
 # Metrický panel a Vykreslování
