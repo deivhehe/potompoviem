@@ -209,7 +209,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
     st.markdown("### 🎛️ Volitelné ladění pozic čepů po dráhách (kružnicích) vzpěr")
     
-    # Hlavní vzpěra - slider X
     min_x1 = max(0.0, Xb1 - L0_1)
     max_x1 = min(lid_length, Xb1 + L0_1)
     default_x1 = float(np.clip(default_lx1, min_x1, max_x1))
@@ -221,7 +220,6 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
     if ly1 > lid_height + 300 or ly1 < -300:
         ly1 = Yb1 - np.sqrt(max(0.0, inner_val1))
 
-    # Pomocná vzpěra - slider X (OPRAVENO: používá L_min_2 místo L0_1)
     if use_aux:
         min_x2 = max(-400.0, Xb2 - L_min_2)
         max_x2 = min(lid_length, Xb2 + L_min_2)
@@ -277,14 +275,14 @@ def solve_forces():
     def objective(forces):
         if use_aux:
             Fm_nom, Fa_nom = forces
-            if Fm_nom < 10 or Fa_nom < 10:
+            if Fm_nom < 50 or Fa_nom < 50:
                 return 1e9
             ratio_actual = Fm_nom / (Fm_nom + Fa_nom + 1e-6)
             ratio_target = force_ratio / 100.0
-            ratio_penalty = (ratio_actual - ratio_target)**2 * 100000.0
+            ratio_penalty = (ratio_actual - ratio_target)**2 * 1000.0
         else:
             Fm_nom = forces[0]
-            if Fm_nom < 10:
+            if Fm_nom < 50:
                 return 1e9
             Fa_nom = 0.0
             ratio_penalty = 0.0
@@ -303,10 +301,10 @@ def solve_forces():
         return err + ratio_penalty
 
     if use_aux:
-        res = minimize(objective, [500.0, 500.0], bounds=[(10, 5000), (10, 5000)], method='L-BFGS-B')
+        res = minimize(objective, [500.0, 500.0], bounds=[(50, 5000), (50, 5000)], method='L-BFGS-B')
         return (res.x[0], res.x[1]) if res.success else (500.0, 500.0)
     else:
-        res = minimize(objective, [500.0], bounds=[(10, 5000)], method='L-BFGS-B')
+        res = minimize(objective, [500.0], bounds=[(50, 5000)], method='L-BFGS-B')
         return (res.x[0], 0.0) if res.success else (500.0, 0.0)
 
 F_main, F_aux = solve_forces()
