@@ -262,58 +262,68 @@ def get_strut_force_at_length(L_current, L_min, S, F_nominal):
     compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
     return F_nominal * (1.0 + progression_rate * compression_ratio)
 
-# Geometrický návrh pozice čepu podle vybraných uživatelských možností (silně vynucená optimalizace)
+# Vyřešení síly vzpěry F1 předem, pokud je zaškrtnuto
+if app_mode == "Návrh a optimalizace" and enable_custom_strut_f:
+    F_main = user_forced_f1
+else:
+    # Dočasný výpočet pro optimalizaci pozice čepu
+    F_main = 500.0
+
+# Geometrický návrh pozice čepu podle vybraných uživatelských možností
 if app_mode == "Návrh a optimalizace" and (enable_custom_strut_f or enable_custom_open_f or enable_custom_close_f):
     def design_objective(v):
         lx, ly = v
         
-        # 1. Výpočet síly F1 pro tuto pozici čepu
-        def test_f1_obj(f1_guess):
-            Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
-            L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
-            L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-            Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f1_guess[0])
-            d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
-            h0 = handle_moment_arm_m(0.0)
-            f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
-            if enable_custom_open_f:
-                return (f_hand_0 - user_target_open_f)**2
-            return 0.0
-
+        # Určení síly F1 pro tuto zkušební pozici čepu
         if enable_custom_strut_f:
-            current_f1 = user_forced_f1
+            f1_current = user_forced_f1
         else:
-            res_f1 = minimize(test_f1_obj, [500.0], bounds=[(10, 10000)], method='L-BFGS-B')
-            current_f1 = res_f1.x[0]
+            # Iterativní odhad F1 tak, aby vyhovoval rovnováze
+            def test_f1(f_guess):
+                Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
+                L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
+                L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
+                Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f_guess[0])
+                d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
+                h0 = handle_moment_arm_m(0.0)
+                f_h0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
+                if enable_custom_open_f:
+                    return (f_h0 - user_target_open_f)**2
+                return 0.0
+            
+            res_f1 = minimize(test_f1, [500.0], bounds=[(10, 10000)], method='L-BFGS-B')
+            f1_current = res_f1.x[0]
 
         err = 0.0
-        
-        if enable_custom_strut_f:
-            err += (current_f1 - user_forced_f1)**2 * 10.0
 
+        # Kontrola síly pro otevření (@0°)
         if enable_custom_open_f:
             Xp0, Yp0 = rotate_mm(lx, ly, 0.0)
             L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
             L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-            Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, current_f1)
+            Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f1_current)
             d0 = signed_moment_arm_mm(Xb1, Yb1, lx, ly, 0.0)
             h0 = handle_moment_arm_m(0.0)
             f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
-            err += (f_hand_0 - user_target_open_f)**2 * 1000.0  # Masivní váha pro 100% vynucení
+            err += (f_hand_0 - user_target_open_f)**2 * 10000.0
 
+        # Kontrola síly pro zavření (@max)
         if enable_custom_close_f:
             Xpm, Ypm = rotate_mm(lx, ly, theta_max)
             Lmax = np.sqrt((Xpm - Xb1)**2 + (Ypm - Yb1)**2)
             L_min_est = np.sqrt((lx - Xb1)**2 + (ly - Yb1)**2)
-            Fmm = get_strut_force_at_length(Lmax, min(L_min_est, Lmax), S1, current_f1)
+            Fmm = get_strut_force_at_length(Lmax, min(L_min_est, Lmax), S1, f1_current)
             dm = signed_moment_arm_mm(Xb1, Yb1, lx, ly, theta_max)
             hm = handle_moment_arm_m(theta_max)
             f_hand_max = -(Tg(theta_max) + n_main * Fmm * dm) / hm
-            err += (f_hand_max - user_target_close_f)**2 * 1000.0  # Masivní váha pro 100% vynucení
+            err += (f_hand_max - user_target_close_f)**2 * 10000.0
+
+        if not (enable_custom_open_f or enable_custom_close_f):
+            pin_def, _ = solve_main_pin_mm(Xb1, Yb1, L0_1, S1, theta_max, lid_length, lid_height)
+            err += (lx - pin_def[0])**2 + (ly - pin_def[1])**2
 
         return err
 
-    # Spuštění optimalizace s více startovními body pro jistotu nalezení ideální polohy čepu
     best_res = None
     best_err = 1e18
     start_guesses = [
@@ -427,6 +437,21 @@ def solve_forces():
             return res.x[0], res.x[1]
         return 500.0, 500.0
     else:
+        # Pokud je zaškrtnuta cílová síla pro otevření, dopočítáme F1 přesně tak, aby seděla na 0°
+        if app_mode == "Návrh a optimalizace" and enable_custom_open_f:
+            def f1_exact(f_val):
+                Xp0, Yp0 = rotate_mm(lx1, ly1, 0.0)
+                L0 = np.sqrt((Xp0 - Xb1)**2 + (Yp0 - Yb1)**2)
+                L_min_est = np.sqrt((lx1 - Xb1)**2 + (ly1 - Yb1)**2)
+                Fm0 = get_strut_force_at_length(L0, min(L_min_est, L0), S1, f_val[0])
+                d0 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, 0.0)
+                h0 = handle_moment_arm_m(0.0)
+                f_hand_0 = -(Tg(0.0) + n_main * Fm0 * d0) / h0
+                return (f_hand_0 - user_target_open_f)**2
+            res_ex = minimize(f1_exact, [500.0], bounds=[(10, 10000)], method='L-BFGS-B')
+            if res_ex.success:
+                return res_ex.x[0], 0.0
+
         res = minimize(objective, [500.0], bounds=[(10, 5000)], method='L-BFGS-B')
         if res.success:
             return res.x[0], 0.0
