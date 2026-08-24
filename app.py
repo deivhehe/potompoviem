@@ -261,7 +261,6 @@ def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt, target_force_at_0=None
                 moment_tíže = -Tg(th)
                 err += (moment_vzpěr - moment_tíže)**2
             
-            # Pokud je zadaná požadovaná síla na madlu při 0°, přičteme penalizaci za odchylku
             if target_force_at_0 is not None:
                 d1_0 = signed_moment_arm_mm(Xb1, Yb1, lx_opt, ly_opt, 0.0)
                 d2_0 = signed_moment_arm_mm(Xb2, Yb2, lx2_opt, ly2_opt, 0.0)
@@ -339,7 +338,7 @@ if enable_manual_pin and app_mode == "Návrh a optimalizace":
         lx2, ly2 = 0.0, 0.0
 
     st.markdown("---")
-    force_offset_at_0 = st.slider("Cílená síla na madlu při otevření @0° (N) [kladná = tlačit, záporná = drží samo]", -200.0, 200.0, 0.0, 5.0)
+    force_offset_at_0 = st.slider("Potřebná síla k zavření", -200.0, 200.0, 0.0, 5.0)
 else:
     st.title(f"🔧 {app_mode}")
     lx1, ly1 = default_lx1, default_ly1
