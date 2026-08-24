@@ -169,7 +169,7 @@ if use_aux:
 
 # Volitelná ruční úprava čepů
 st.sidebar.header("8) Interaktivní úprava čepů")
-enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na dráhách", value=False)
+enable_manual_pin = st.sidebar.checkbox("Ručně upravit pozice čepů na víku", value=False)
 
 st.sidebar.header("9) Ovládání náhledu a animace")
 if 'anim_deg' not in st.session_state:
@@ -203,34 +203,46 @@ else:
     default_lx2, default_ly2 = 0.0, 0.0
 
 # ----------------------------------------------------------------------
-# Určení pozic čepů (automatika vs. volitelná ruční úprava)
+# Určení pozic čepů (automatika vs. volitelná ruční úprava X a Y separátně)
 # ----------------------------------------------------------------------
 if enable_manual_pin and app_mode == "Návrh a optimalizace":
     st.title(f"🔧 {app_mode} (Ruční úprava čepů)")
-    st.markdown("### 🎛️ Volitelné ladění pozic čepů po dráhách (kružnicích) vzpěr")
+    st.markdown("### 🎛️ Volitelné samostatné ladění X a Y pro hlavní i pomocné vzpěry")
     
-    min_x1 = max(0.0, Xb1 - L0_1)
-    max_x1 = min(lid_length, Xb1 + L0_1)
-    default_x1 = float(np.clip(default_lx1, min_x1, max_x1))
+    # Hlavní vzpěra - samostatné X a Y
+    st.markdown("#### Hlavní vzpěra")
+    col_h1, col_h2 = st.columns(2)
+    lx1 = col_h1.number_input("Čep hlavní vzpěry – X (mm)", -400.0, lid_length + 200.0, float(default_lx1), 5.0)
+    ly1 = col_h2.number_input("Čep hlavní vzpěry – Y (mm)", -200.0, lid_height + 300.0, float(default_ly1), 5.0)
     
-    lx1 = st.slider("Čep hlavní vzpěry – X na víku (mm)", min_value=float(min_x1), max_value=float(max_x1), value=default_x1, step=1.0)
+    # Kontrola délki hlavní vzpěry
+    cur_L0_1 = np.sqrt((lx1 - Xb1)**2 + (ly1 - Yb1)**2)
+    Xp1_max_chk, Yp1_max_chk = rotate_mm(lx1, ly1, theta_max)
+    cur_L1_max = np.sqrt((Xp1_max_chk - Xb1)**2 + (Yp1_max_chk - Yb1)**2)
     
-    inner_val1 = L0_1**2 - (lx1 - Xb1)**2
-    ly1 = Yb1 + np.sqrt(max(0.0, inner_val1))
-    if ly1 > lid_height + 300 or ly1 < -300:
-        ly1 = Yb1 - np.sqrt(max(0.0, inner_val1))
+    if abs(cur_L0_1 - L0_1) > 2.0:
+        st.sidebar.warning(f"⚠️ Hlavní @0°: délka {cur_L0_1:.1f} mm nesedí s L0 ({L0_1} mm)!")
+    if not (L0_1 <= cur_L1_max <= L0_1 + S1):
+        st.sidebar.warning(f"⚠️ Hlavní @max: délka {cur_L1_max:.1f} mm je mimo zdvih ({L0_1} až {L0_1 + S1} mm)!")
 
+    # Pomocná vzpěra - samostatné X a Y (pokud je aktivní)
     if use_aux:
-        min_x2 = max(-400.0, Xb2 - L_min_2)
-        max_x2 = min(lid_length, Xb2 + L_min_2)
-        default_x2 = float(np.clip(default_lx2, min_x2, max_x2))
+        st.markdown("#### Pomocná vzpěra")
+        col_p1, col_p2 = st.columns(2)
+        lx2 = col_p1.number_input("Čep pomocné vzpěry – X (mm)", -600.0, lid_length + 200.0, float(default_lx2), 5.0)
+        ly2 = col_p2.number_input("Čep pomocné vzpěry – Y (mm)", -300.0, lid_height + 300.0, float(default_ly2), 5.0)
         
-        lx2 = st.slider("Čep pomocné vzpěry – X na víku (mm)", min_value=float(min_x2), max_value=float(max_x2), value=default_x2, step=1.0)
+        cur_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
+        Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
+        cur_L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
         
-        inner_val2 = L_min_2**2 - (lx2 - Xb2)**2
-        ly2 = Yb2 + np.sqrt(max(0.0, inner_val2))
-        if ly2 > lid_height + 300 or ly2 < -300:
-            ly2 = Yb2 - np.sqrt(max(0.0, inner_val2))
+        # Kontrola limitů pomocné vzpěry a upozornění v sidebaru
+        if not (L_min_2 <= cur_L2_0 <= L_min_2 + S2):
+            st.sidebar.warning(f"⚠️ Pomocná @0°: délka {cur_L2_0:.1f} mm je mimo rozsah ({L_min_2} až {L_min_2 + S2} mm)!")
+        if not (L_min_2 <= cur_L2_max <= L_min_2 + S2):
+            st.sidebar.warning(f"⚠️ Pomocná @max: délka {cur_L2_max:.1f} mm je mimo rozsah ({L_min_2} až {L_min_2 + S2} mm)!")
+        
+        st.info(f"💡 Pomocná vzpěra: délka v zavřeném stavu = **{cur_L2_0:.1f} mm** (min: {L_min_2}) | délka v max. otevření = **{cur_L2_max:.1f} mm** (max: {L_min_2 + S2})")
     else:
         lx2, ly2 = 0.0, 0.0
 else:
@@ -262,7 +274,6 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
     if use_aux:
         Xp2, Yp2 = rotate_mm(lx2, ly2, th)
         L2 = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        # REÁLNÁ DÉLKA POMOCNÉ VZPĚRY: zohledňuje skutečnou pozici v zavřeném stavu a při max otevření
         L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
         Xp2_max, Yp2_max = rotate_mm(lx2, ly2, theta_max)
         L2_max = np.sqrt((Xp2_max - Xb2)**2 + (Yp2_max - Yb2)**2)
