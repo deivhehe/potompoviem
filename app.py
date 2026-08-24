@@ -424,7 +424,7 @@ col_geo.pyplot(fig1)
 col_force.pyplot(fig2)
 
 # ----------------------------------------------------------------------
-# Generování PDF protokolu
+# Generování PDF protokolu (přímo jako stahovací tlačítko)
 # ----------------------------------------------------------------------
 st.sidebar.divider()
 st.sidebar.header("📄 Export protokolu")
@@ -440,53 +440,51 @@ class PDFReport(FPDF):
         self.set_font("Helvetica", "I", 8)
         self.cell(0, 10, f"Strana {self.page_no()}", 0, 0, "C")
 
-if st.sidebar.button("📄 Vygenerovat PDF protokol"):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        fig1.savefig(f"{tmpdir}/geo.png", dpi=150)
-        fig2.savefig(f"{tmpdir}/force.png", dpi=150)
+with tempfile.TemporaryDirectory() as tmpdir:
+    fig1.savefig(f"{tmpdir}/geo.png", dpi=150)
+    fig2.savefig(f"{tmpdir}/force.png", dpi=150)
 
-        pdf = PDFReport()
-        pdf.add_page()
-        pdf.set_font("Helvetica", "", 10)
+    pdf = PDFReport()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "", 10)
 
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "1. Zadané parametry", 0, 1)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"Režim: {app_mode}", 0, 1)
-        pdf.cell(0, 6, f"Rozměry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg", 0, 1)
-        pdf.cell(0, 6, f"Těžiště (X, Y): {cg_x_mm} mm, {cg_y_mm} mm | Madlo (X, Y): {handle_x_mm} mm, {handle_y_mm} mm", 0, 1)
-        pdf.cell(0, 6, f"Max. úhel otevření: {theta_max_deg} deg | Uspořádání: {config_type} ({strut_type_key})", 0, 1)
-        pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "1. Zadané parametry", 0, 1)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Režim: {app_mode}", 0, 1)
+    pdf.cell(0, 6, f"Rozměry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg", 0, 1)
+    pdf.cell(0, 6, f"Těžiště (X, Y): {cg_x_mm} mm, {cg_y_mm} mm | Madlo (X, Y): {handle_x_mm} mm, {handle_y_mm} mm", 0, 1)
+    pdf.cell(0, 6, f"Max. úhel otevření: {theta_max_deg} deg | Uspořádání: {config_type} ({strut_type_key})", 0, 1)
+    pdf.ln(4)
 
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "2. Výsledky výpočtu a pozice čepů", 0, 1)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"Hlavní vzpěra – Vana (X, Y): {Xb1} mm, {Yb1} mm | Čep na víku (X, Y): {lx1:.1f} mm, {ly1:.1f} mm", 0, 1)
-        pdf.cell(0, 6, f"Jmenovitá síla hlavní vzpěry (1 ks): {F_main:.0f} N", 0, 1)
-        if use_aux:
-            pdf.cell(0, 6, f"Pomocná vzpěra – Vana (X, Y): {Xb2} mm, {Yb2} mm | Čep na víku (X, Y): {lx2:.1f} mm, {ly2:.1f} mm", 0, 1)
-            pdf.cell(0, 6, f"Jmenovitá síla pomocné vzpěry (1 ks): {F_aux:.0f} N", 0, 1)
-        
-        pdf.cell(0, 6, f"Síla na madlu k otevření (@0°): {F_hand(0.0):.1f} N", 0, 1)
-        pdf.cell(0, 6, f"Síla na madlu k zavření (@max): {f_max_val:.1f} N", 0, 1)
-        if theta_dead is not None:
-            pdf.cell(0, 6, f"Mrtvý bod: {np.degrees(theta_dead):.1f}°", 0, 1)
-        pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "2. Výsledky výpočtu a pozice čepů", 0, 1)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Hlavní vzpěra – Vana (X, Y): {Xb1} mm, {Yb1} mm | Čep na víku (X, Y): {lx1:.1f} mm, {ly1:.1f} mm", 0, 1)
+    pdf.cell(0, 6, f"Jmenovitá síla hlavní vzpěry (1 ks): {F_main:.0f} N", 0, 1)
+    if use_aux:
+        pdf.cell(0, 6, f"Pomocná vzpěra – Vana (X, Y): {Xb2} mm, {Yb2} mm | Čep na víku (X, Y): {lx2:.1f} mm, {ly2:.1f} mm", 0, 1)
+        pdf.cell(0, 6, f"Jmenovitá síla pomocné vzpěry (1 ks): {F_aux:.0f} N", 0, 1)
+    
+    pdf.cell(0, 6, f"Síla na madlu k otevření (@0°): {F_hand(0.0):.1f} N", 0, 1)
+    pdf.cell(0, 6, f"Síla na madlu k zavření (@max): {f_max_val:.1f} N", 0, 1)
+    if theta_dead is not None:
+        pdf.cell(0, 6, f"Mrtvý bod: {np.degrees(theta_dead):.1f}°", 0, 1)
+    pdf.ln(4)
 
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 8, "3. Grafické znázornění", 0, 1)
-        pdf.image(f"{tmpdir}/geo.png", x=15, w=85)
-        pdf.image(f"{tmpdir}/force.png", x=110, y=pdf.get_y()-45, w=85)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "3. Grafické znázornění", 0, 1)
+    pdf.image(f"{tmpdir}/geo.png", x=15, w=85)
+    pdf.image(f"{tmpdir}/force.png", x=110, y=pdf.get_y()-45, w=85)
 
-        pdf_data = pdf.output(dest='S').encode('latin1')
-        
-        st.sidebar.download_button(
-            label="📥 Stáhnout hotové PDF",
-            data=pdf_data,
-            file_name="protokol_plynove_vzpery.pdf",
-            mime="application/pdf"
-        )
-        st.sidebar.success("✅ Protokol je připraven ke stažení!")
+    pdf_data = pdf.output(dest='S').encode('latin1')
+    
+    st.sidebar.download_button(
+        label="📥 Stáhnout protokol (PDF)",
+        data=pdf_data,
+        file_name="protokol_plynove_vzpery.pdf",
+        mime="application/pdf"
+    )
 
 # Smyčka animace při zapnutém Play
 if st.session_state.is_playing:
