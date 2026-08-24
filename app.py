@@ -350,7 +350,8 @@ def F_hand(theta):
 # ----------------------------------------------------------------------
 # Hlavní plocha – Výsledky a přehled parametrů pro tisk
 # ----------------------------------------------------------------------
-st.title(f"🔧 {app_mode}")
+app_title = "Návrh a kontrola plynových vzpěr víka" if app_mode == "Návrh a optimalizace" else "Kontrola existujícího řešení víka"
+st.title(f"🔧 {app_title}")
 
 # Rozbalovací panel se všemi zadanými hodnotami (pro tisk)
 with st.expander("📋 Kompletní přehled zadaných parametrů (pro tisk)", expanded=True):
@@ -386,9 +387,9 @@ st.divider()
 
 col_geo, col_force = st.columns(2)
 
-fig1, ax1 = plt.subplots(figsize=(5, 2.8))
-fig2, ax2 = plt.subplots(figsize=(5, 2.8))
-common_adjust = {'left': 0.15, 'bottom': 0.18, 'right': 0.95, 'top': 0.9}
+fig1, ax1 = plt.subplots(figsize=(5, 3.1))
+fig2, ax2 = plt.subplots(figsize=(5, 3.1))
+common_adjust = {'left': 0.16, 'bottom': 0.18, 'right': 0.95, 'top': 0.9}
 fig1.subplots_adjust(**common_adjust)
 fig2.subplots_adjust(**common_adjust)
 
@@ -429,28 +430,31 @@ def draw_geometry_mm(ax, theta):
     ax.set_xlim(min(-600.0, -max_dim * 0.25), max(lid_length * 1.2, 600.0))
     ax.set_ylim(-400, max(lid_height * 1.5, 1000.0))
     
-    # Nastavení os jako pravítko (milimetrová mřížka)
-    # Hlavní dílky po 200 mm (velké čárky s popisky)
+    # Pravítko: Hlavní popisky po 200 mm, podřízené po 100 mm, jemné po 20 mm
     ax.xaxis.set_major_locator(ticker.MultipleLocator(200))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(200))
-    # Střední dílky po 100 mm (půlka)
     ax.xaxis.set_minor_locator(ticker.MultipleLocator(100))
     ax.yaxis.set_minor_locator(ticker.MultipleLocator(100))
 
-    # Vykreslení mřížky pro pravítko (velká vs. malá mřížka)
     ax.grid(which='major', color='grey', linestyle='-', linewidth=0.6, alpha=0.5)
     ax.grid(which='minor', color='lightgrey', linestyle=':', linewidth=0.4, alpha=0.5)
     
     ax.set_box_aspect(1)
     ax.invert_xaxis()
     ax.tick_params(axis='both', labelsize=8)
+    
+    # Bezpečné otočení popisků osy X, aby se nikdy nepřekrývaly
+    for label in ax.get_xticklabels():
+        label.set_rotation(20)
+        label.set_horizontalalignment('right')
+
     ax.set_title(f"Geometrie @ {np.degrees(theta):.1f}°", fontsize=10, fontweight='bold')
     ax.legend(loc="upper left", fontsize=7)
 
 def draw_force_profile(ax, theta_marker=None):
     ax.clear()
     
-    # Rozsah osy X pevně do 110° s krokem 10°
+    # Osa X úhly do 110° s krokem 10°
     ax.set_xlim(0, 110)
     ax.xaxis.set_major_locator(ticker.MultipleLocator(10))
     
