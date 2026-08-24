@@ -172,7 +172,6 @@ if use_aux:
     st.sidebar.header("Pomocná vzpěra (konzolka)")
     Xb2 = st.sidebar.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 145.0, 5.0)
     Yb2 = st.sidebar.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -241.0, 5.0)
-    # Změněno z reálné délky na minimální délku (zavřený stav)
     L2_min_input = st.sidebar.number_input("Minimální délka pomocné vzpěry @0° (mm)", 100.0, 2000.0, 478.0, 1.0)
     S2 = st.sidebar.number_input("Zdvih pomocné vzpěry (mm)", 10.0, 1500.0, 120.0, 5.0)
 
@@ -288,6 +287,7 @@ def solve_forces():
         def objective(total_scale):
             if total_scale < 20 or total_scale > 40000:
                 return 1e12
+            # OPRAVENO: Hlavní vzpěra bere force_ratio, pomocná zbytek (100 - force_ratio)
             Fm_nom = total_scale * (force_ratio / 100.0)
             Fa_nom = total_scale * ((100.0 - force_ratio) / 100.0)
             
