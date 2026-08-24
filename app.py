@@ -203,6 +203,90 @@ if use_aux:
 else:
     default_lx2, default_ly2 = 0.0, 0.0
 
+theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
+cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
+
+def Tg(theta):
+    return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
+
+def handle_moment_arm_m(theta):
+    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
+    r = np.hypot(hx, hy)
+    return r * 0.001 if r > 1e-6 else 1e-6
+
+def get_strut_force_at_length(L_current, L_min, S, F_nominal, prog_rate):
+    compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
+    return F_nominal * (1.0 + prog_rate * compression_ratio)
+
+def get_struts_forces_at_angle(th, Fm_nom, Fa_nom, cur_lx1, cur_ly1, cur_lx2, cur_ly2):
+    Xp1, Yp1 = rotate_mm(cur_lx1, cur_ly1, th)
+    L1 = np.sqrt((Xp1 - Xb1)**2 + (Yp1 - Yb1)**2)
+    Fm_actual = get_strut_force_at_length(L1, L0_1, S1, Fm_nom, progression_rate_main)
+
+    Fa_actual = 0.0
+    if use_aux:
+        Xp2, Yp2 = rotate_mm(cur_lx2, cur_ly2, th)
+        geom_L2_0 = np.sqrt((cur_lx2 - Xb2)**2 + (cur_ly2 - Yb2)**2)
+        geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
+        delta_L = geom_L2_th - geom_L2_0
+        L2_current = L2_min_input + delta_L
+        
+        L2_max_real = L2_min_input + (np.sqrt((rotate_mm(cur_lx2, cur_ly2, theta_max)[0] - Xb2)**2 + (rotate_mm(cur_lx2, cur_ly2, theta_max)[1] - Yb2)**2) - geom_L2_0)
+        
+        Fa_actual = get_strut_force_at_length(L2_current, min(L2_min_input, L2_max_real), S2, Fa_nom, progression_rate_aux)
+
+    return Fm_actual, Fa_actual
+
+# Paměť pro plynulé navazování sil (zabrání divokým skokům při posunu o 1 mm)
+if 'last_solved_forces' not in st.session_state:
+    st.session_state.last_solved_forces = [500.0, 300.0]
+
+def solve_forces_smooth(lx_opt, ly_opt, lx2_opt, ly2_opt):
+    if use_custom_forces and app_mode == "Kontrola existujícího řešení":
+        return custom_f_main, (custom_f_aux if use_aux else 0.0)
+
+    initial_guess = st.session_state.last_solved_forces
+
+    if use_aux:
+        def objective(vars_forces):
+            Fm_nom, Fa_nom = vars_forces
+            if Fm_nom < 10 or Fa_nom < 10:
+                return 1e12
+            
+            err = 0.0
+            for th in np.linspace(0, theta_max, 5):
+                d1 = signed_moment_arm_mm(Xb1, Yb1, lx_opt, ly_opt, th)
+                d2 = signed_moment_arm_mm(Xb2, Yb2, lx2_opt, ly2_opt, th)
+                Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom, lx_opt, ly_opt, lx2_opt, ly2_opt)
+                moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
+                moment_tíže = -Tg(th)
+                err += (moment_vzpěr - moment_tíže)**2
+            return err
+
+        res = minimize(objective, initial_guess, bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
+        if res.success:
+            st.session_state.last_solved_forces = [res.x[0], res.x[1]]
+            return res.x[0], res.x[1]
+        return initial_guess[0], initial_guess[1]
+    else:
+        def objective_single(Fm_nom):
+            if Fm_nom[0] < 10:
+                return 1e12
+            err = 0.0
+            for th in np.linspace(0, theta_max, 5):
+                d1 = signed_moment_arm_mm(Xb1, Yb1, lx_opt, ly_opt, th)
+                Fm_act, _ = get_struts_forces_at_angle(th, Fm_nom[0], 0.0, lx_opt, ly_opt, 0, 0)
+                moment_vzpěr = n_main * Fm_act * d1
+                moment_tíže = -Tg(th)
+                err += (moment_vzpěr - moment_tíže)**2
+            return err
+
+        res = minimize(objective_single, [initial_guess[0]], bounds=[(10, 20000)], method='L-BFGS-B')
+        if res.success:
+            st.session_state.last_solved_forces = [res.x[0], 0.0]
+            return res.x[0], 0.0
+        return initial_guess[0], 0.0
+
 # ----------------------------------------------------------------------
 # Určení pozic čepů
 # ----------------------------------------------------------------------
@@ -238,86 +322,12 @@ else:
     lx2, ly2 = default_lx2, default_ly2
     L2_min_input = 478.0
 
-theta_dead = find_dead_point(cg_x_mm, cg_y_mm, theta_max)
-cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
-
-def Tg(theta):
-    return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
-
-def handle_moment_arm_m(theta):
-    hx, hy = rotate_mm(handle_x_mm, handle_y_mm, theta)
-    r = np.hypot(hx, hy)
-    return r * 0.001 if r > 1e-6 else 1e-6
-
-def get_strut_force_at_length(L_current, L_min, S, F_nominal, prog_rate):
-    compression_ratio = np.clip(( (L_min + S) - L_current ) / (S + 1e-6), 0.0, 1.0)
-    return F_nominal * (1.0 + prog_rate * compression_ratio)
-
-def get_struts_forces_at_angle(th, Fm_nom, Fa_nom):
-    Xp1, Yp1 = rotate_mm(lx1, ly1, th)
-    L1 = np.sqrt((Xp1 - Xb1)**2 + (Yp1 - Yb1)**2)
-    Fm_actual = get_strut_force_at_length(L1, L0_1, S1, Fm_nom, progression_rate_main)
-
-    Fa_actual = 0.0
-    if use_aux:
-        Xp2, Yp2 = rotate_mm(lx2, ly2, th)
-        geom_L2_0 = np.sqrt((lx2 - Xb2)**2 + (ly2 - Yb2)**2)
-        geom_L2_th = np.sqrt((Xp2 - Xb2)**2 + (Yp2 - Yb2)**2)
-        delta_L = geom_L2_th - geom_L2_0
-        L2_current = L2_min_input + delta_L
-        
-        L2_max_real = L2_min_input + (np.sqrt((rotate_mm(lx2, ly2, theta_max)[0] - Xb2)**2 + (rotate_mm(lx2, ly2, theta_max)[1] - Yb2)**2) - geom_L2_0)
-        
-        Fa_actual = get_strut_force_at_length(L2_current, min(L2_min_input, L2_max_real), S2, Fa_nom, progression_rate_aux)
-
-    return Fm_actual, Fa_actual
-
-def solve_forces():
-    if use_custom_forces:
-        return custom_f_main, (custom_f_aux if use_aux else 0.0)
-
-    if use_aux:
-        def objective(vars_forces):
-            Fm_nom, Fa_nom = vars_forces
-            if Fm_nom < 10 or Fa_nom < 10:
-                return 1e12
-            
-            err = 0.0
-            for th in np.linspace(0, theta_max, 5):
-                d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
-                d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th)
-                Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
-                moment_vzpěr = n_main * Fm_act * d1 + n_aux * Fa_act * d2
-                moment_tíže = -Tg(th)
-                err += (moment_vzpěr - moment_tíže)**2
-            return err
-
-        res = minimize(objective, [500.0, 300.0], bounds=[(10, 20000), (10, 20000)], method='L-BFGS-B')
-        if res.success:
-            return res.x[0], res.x[1]
-        return 500.0, 300.0
-    else:
-        def objective_single(Fm_nom):
-            if Fm_nom[0] < 10:
-                return 1e12
-            err = 0.0
-            for th in np.linspace(0, theta_max, 5):
-                d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
-                Fm_act, _ = get_struts_forces_at_angle(th, Fm_nom[0], 0.0)
-                moment_vzpěr = n_main * Fm_act * d1
-                moment_tíže = -Tg(th)
-                err += (moment_vzpěr - moment_tíže)**2
-            return err
-
-        res = minimize(objective_single, [500.0], bounds=[(10, 20000)], method='L-BFGS-B')
-        return (res.x[0], 0.0) if res.success else (500.0, 0.0)
-
-F_main, F_aux = solve_forces()
+F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2)
 
 def calc_F_hand_internal(th, Fm_nom, Fa_nom):
     d1 = signed_moment_arm_mm(Xb1, Yb1, lx1, ly1, th)
     d2 = signed_moment_arm_mm(Xb2, Yb2, lx2, ly2, th) if use_aux else 0.0
-    Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom)
+    Fm_act, Fa_act = get_struts_forces_at_angle(th, Fm_nom, Fa_nom, lx1, ly1, lx2, ly2)
     Ts_main = n_main * Fm_act * d1
     Ts_aux = n_aux * Fa_act * d2 if use_aux else 0.0
     h_arm = handle_moment_arm_m(th)
@@ -378,7 +388,6 @@ def draw_geometry_mm(ax, theta):
         ax.plot(Xb2, Yb2, "s", color="#d62728", markersize=3.5, zorder=5)
         ax.plot(Xp2, Yp2, "^", color="#d62728", markersize=3.5, zorder=5)
 
-    # Automatické sjednocení měřítka os tak, aby X odpovídalo vizuálně Y (1:1 poměr)
     all_x = xs + [0, Xb1] + ([Xb2] if use_aux else []) + ([Xp1] if 'Xp1' in locals() else [])
     all_y = ys + [0, Yb1] + ([Yb2] if use_aux else []) + ([Yp1] if 'Yp1' in locals() else [])
     
@@ -387,7 +396,7 @@ def draw_geometry_mm(ax, theta):
     
     range_x = max_x - min_x
     range_y = max_y - min_y
-    max_range = max(range_x, range_y, 800.0) # minimální rozsah
+    max_range = max(range_x, range_y, 800.0)
     
     mid_x = (min_x + max_x) / 2.0
     mid_y = (min_y + max_y) / 2.0
