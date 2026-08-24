@@ -78,23 +78,52 @@ def solve_main_pin_mm(Xb_mm, Yb_mm, L0_mm, S_mm, theta_max, L_lid_mm, H_lid_mm):
         return res.x, True
     return [L_lid_mm * 0.5, H_lid_mm * 0.5], False
 
-def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind=False):
+def solve_pin_custom(Xb_mm, Yb_mm, L_min_mm, S_mm, theta_max, L_lid_mm, H_lid_mm, allow_behind=False, n_theta=40):
+    # OPRAVA: dřív se posuzovaly jen dva body dráhy (theta=0 a theta_max).
+    # Vzdálenost rotujícího čepu od pevné vany ale obecně NENÍ monotónní funkce
+    # úhlu - může se uprostřed dráhy nejdřív zmenšit a pak zase zvětšit (nebo naopak).
+    # Proto se teď posuzuje CELÁ trajektorie: cílíme na to, aby L(0) = L_min a
+    # aby MAXIMUM délky na celé dráze bylo u L_min+S (skutečné využití zdvihu),
+    # a penalizujeme jakýkoli bod dráhy mimo fyzický rozsah [L_min, L_min+S].
+    thetas = np.linspace(0.0, theta_max, n_theta)
+
     def obj(v):
         lx, ly = v
         L_0 = np.sqrt((lx - Xb_mm) ** 2 + (ly - Yb_mm) ** 2)
-        Xp2, Yp2 = rotate_mm(lx, ly, theta_max)
-        L_max_angle = np.sqrt((Xp2 - Xb_mm) ** 2 + (Yp2 - Yb_mm) ** 2)
-        pen = 0.0
-        if L_0 < L_min_mm or L_0 > L_min_mm + S_mm:
-            pen += (min(abs(L_0 - L_min_mm), abs(L_0 - (L_min_mm + S_mm))))**2 * 10.0
-        if L_max_angle < L_min_mm or L_max_angle > L_min_mm + S_mm:
-            pen += (min(abs(L_max_angle - L_min_mm), abs(L_max_angle - (L_min_mm + S_mm))))**2 * 10.0
-        return (L_0 - L_min_mm)**2 + pen
+
+        Xp_all, Yp_all = rotate_mm(lx, ly, thetas)
+        L_path = np.sqrt((Xp_all - Xb_mm) ** 2 + (Yp_all - Yb_mm) ** 2)
+
+        err = (L_0 - L_min_mm) ** 2
+        err += (L_path.max() - (L_min_mm + S_mm)) ** 2
+
+        below = np.clip(L_min_mm - L_path, 0.0, None)
+        above = np.clip(L_path - (L_min_mm + S_mm), 0.0, None)
+        err += 20.0 * np.sum(below ** 2) + 20.0 * np.sum(above ** 2)
+        return err
 
     x_bounds = (-400.0 if allow_behind else 10.0, L_lid_mm)
-    res = minimize(obj, [100.0, 100.0], bounds=[x_bounds, (-200, H_lid_mm + 500)], method='L-BFGS-B')
-    if res.success and res.fun < 500.0:
-        return res.x, True
+    y_bounds = (-200.0, H_lid_mm + 500.0)
+
+    # Vícenásobný start, aby optimalizátor neuvízl ve špatném lokálním minimu
+    # (typicky degenerované řešení s téměř nulovým skutečným zdvihem).
+    start_points = [
+        [100.0, 100.0],
+        [L_lid_mm * 0.15, H_lid_mm * 0.15],
+        [L_lid_mm * 0.35, H_lid_mm * 0.5],
+        [L_lid_mm * 0.1, H_lid_mm * 0.75],
+        [max(x_bounds[0], -200.0), H_lid_mm * 0.3],
+    ]
+
+    best_res = None
+    for x0 in start_points:
+        x0c = [float(np.clip(x0[0], x_bounds[0], x_bounds[1])), float(np.clip(x0[1], y_bounds[0], y_bounds[1]))]
+        res = minimize(obj, x0c, bounds=[x_bounds, y_bounds], method='L-BFGS-B')
+        if res.success and (best_res is None or res.fun < best_res.fun):
+            best_res = res
+
+    if best_res is not None and best_res.fun < 500.0:
+        return best_res.x, True
     return [100.0, 100.0], False
 
 def find_dead_point(cg_x_mm, cg_y_mm, theta_max):
@@ -248,16 +277,15 @@ def get_struts_forces_at_angle(th, Fm_nom, Fa_nom, cur_lx1, cur_ly1, cur_lx2, cu
     return Fm_actual, Fa_actual
 
 def aux_strut_travel_mm(cur_lx2, cur_ly2, th_max, n_points=200):
-    """Vrátí (min, max) fyzické délky pomocné vzpěry na celé trajektorii 0..th_max."""
+    """Vrátí (min, max) fyzické délky pomocné vzpěry na celé trajektorii 0..th_max
+    (a úhel, ve kterém nastává minimum/maximum, pro diagnostiku)."""
     thetas = np.linspace(0.0, th_max, n_points)
+    Xp_all, Yp_all = rotate_mm(cur_lx2, cur_ly2, thetas)
     geom_L2_0 = np.sqrt((cur_lx2 - Xb2) ** 2 + (cur_ly2 - Yb2) ** 2)
-    lengths = []
-    for th in thetas:
-        Xp2, Yp2 = rotate_mm(cur_lx2, cur_ly2, th)
-        geom_L2_th = np.sqrt((Xp2 - Xb2) ** 2 + (Yp2 - Yb2) ** 2)
-        lengths.append(L2_min_input + (geom_L2_th - geom_L2_0))
-    lengths = np.array(lengths)
-    return float(lengths.min()), float(lengths.max())
+    geom_L2_path = np.sqrt((Xp_all - Xb2) ** 2 + (Yp_all - Yb2) ** 2)
+    lengths = L2_min_input + (geom_L2_path - geom_L2_0)
+    imin, imax = int(np.argmin(lengths)), int(np.argmax(lengths))
+    return float(lengths.min()), float(lengths.max()), float(np.degrees(thetas[imin])), float(np.degrees(thetas[imax]))
 
 if 'last_solved_forces' not in st.session_state:
     st.session_state.last_solved_forces = [500.0, 300.0]
@@ -378,15 +406,22 @@ F_main, F_aux = solve_forces_smooth(lx1, ly1, lx2, ly2, target_force_at_0=force_
 
 # Kontrola, jestli navržená/ručně zadaná geometrie nepřekračuje mechanický zdvih pomocné vzpěry
 if use_aux:
-    L2_travel_min, L2_travel_max = aux_strut_travel_mm(lx2, ly2, theta_max)
+    L2_travel_min, L2_travel_max, deg_at_min, deg_at_max = aux_strut_travel_mm(lx2, ly2, theta_max)
     L2_allowed_max = L2_min_input + S2
     tol = 0.5
+    used_stroke = L2_travel_max - L2_travel_min
     if L2_travel_min < L2_min_input - tol or L2_travel_max > L2_allowed_max + tol:
         st.warning(
             f"⚠️ Pomocná vzpěra by během otevírání musela mít délku "
-            f"{L2_travel_min:.0f}–{L2_travel_max:.0f} mm, ale její mechanický rozsah je jen "
-            f"{L2_min_input:.0f}–{L2_allowed_max:.0f} mm (zdvih {S2:.0f} mm). "
-            "V části rozsahu by narazila na doraz – upravte polohu čepů nebo zdvih vzpěry."
+            f"{L2_travel_min:.0f}–{L2_travel_max:.0f} mm (min. při {deg_at_min:.0f}°, max. při {deg_at_max:.0f}°), "
+            f"ale její mechanický rozsah je jen {L2_min_input:.0f}–{L2_allowed_max:.0f} mm (zdvih {S2:.0f} mm). "
+            "V části rozsahu by narazila na doraz – upravte polohu čepů/vany nebo zdvih vzpěry."
+        )
+    elif used_stroke < 0.5 * S2:
+        st.info(
+            f"ℹ️ Pomocná vzpěra na této dráze reálně využije jen {used_stroke:.0f} mm ze svého "
+            f"{S2:.0f} mm zdvihu ({L2_travel_min:.0f}–{L2_travel_max:.0f} mm). "
+            "Zvažte jinou polohu vany/čepu pro lepší využití zdvihu."
         )
 
 def calc_F_hand_internal(th, Fm_nom, Fa_nom):
