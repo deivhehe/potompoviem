@@ -71,21 +71,17 @@ def find_max_angle_single(Xb, Yb, lx, ly, L_ext):
         return None
 
 def find_max_angle_dual(Xb1, Yb1, lx1, ly1, L_ext1, Xb2, Yb2, lx2, ly2, L_ext2):
-    # Určíme, která vzpěra dorazí na svůj maximum dřív (využije svůj zdvih)
     best_rad = np.radians(180)
-    
     rad1 = find_max_angle_single(Xb1, Yb1, lx1, ly1, L_ext1)
     if rad1 is not None and rad1 > 0:
         best_rad = min(best_rad, rad1)
-        
     rad2 = find_max_angle_single(Xb2, Yb2, lx2, ly2, L_ext2)
     if rad2 is not None and rad2 > 0:
         best_rad = min(best_rad, rad2)
-        
     return best_rad if best_rad < np.radians(180) else None
 
 # ----------------------------------------------------------------------
-# UI - SIDEBAR (Společné parametry víka, těžiště a madla)
+# UI - SIDEBAR (Pouze parametry víka, těžiště a madla)
 # ----------------------------------------------------------------------
 st.sidebar.header("1) Parametry víka")
 lid_length = st.sidebar.number_input("Délka víka (mm)", 50.0, 3000.0, 1109.0, 10.0)
@@ -102,24 +98,26 @@ handle_y_mm = st.sidebar.number_input("Madlo Y (mm od pantu)", -500.0, 1000.0, f
 tab1, tab2 = st.tabs(["2× Hlavní vzpěra", "Hlavní + Pomocná vzpěra"])
 
 with tab1:
-    st.sidebar.header("3) Výběr hlavní vzpěry")
-    strut_type = st.sidebar.selectbox("Typ vzpěry", list(STRUT_DATA.keys()), index=4, key="t1_type")
-    S1 = st.sidebar.number_input("Zdvih vzpěry (mm)", 10.0, 1500.0, 300.0, 5.0, key="t1_s")
-    F_nom = st.sidebar.number_input("Jmenovitá síla vzpěry F1 (N / 1ks)", 10.0, 20000.0, 650.0, 10.0, key="t1_f")
-
-    st.sidebar.header("4) Koncovky")
-    fitting_type = st.sidebar.selectbox("Typ koncovek", list(FITTING_DATA.keys()), index=2, key="t1_fit")
-    if fitting_type == "Vlastní (ruční zadání)":
-        k1 = st.sidebar.number_input("Délka koncovky na vaně (mm)", 0.0, 200.0, 18.0, key="t1_k1")
-        k2 = st.sidebar.number_input("Délka koncovky na víku (mm)", 0.0, 200.0, 18.0, key="t1_k2")
-    else:
-        k1 = k2 = FITTING_DATA[fitting_type]
-
-    st.sidebar.header("5) Pozice čepů (natvrdo)")
-    Xb1 = st.sidebar.number_input("Vana - X (mm)", -1000.0, 3000.0, 585.0, 5.0, key="t1_xb")
-    Yb1 = st.sidebar.number_input("Vana - Y (mm)", -1000.0, 1000.0, -111.0, 5.0, key="t1_yb")
-    lx1 = st.sidebar.number_input("Víko - X (mm)", -1000.0, 3000.0, 369.0, 5.0, key="t1_lx")
-    ly1 = st.sidebar.number_input("Víko - Y (mm)", -1000.0, 1000.0, 233.0, 5.0, key="t1_ly")
+    st.title("🧮 Vzpěrovač (2× Hlavní vzpěra)")
+    
+    col_single = st.columns(1)[0]
+    with col_single:
+        st.markdown("### Hlavní vzpěra (2 ks)")
+        strut_type = st.selectbox("Typ hlavní vzpěry", list(STRUT_DATA.keys()), index=4, key="t1_type")
+        S1 = st.number_input("Zdvih vzpěry (mm)", 10.0, 1500.0, 300.0, 5.0, key="t1_s")
+        F_nom = st.number_input("Jmenovitá síla vzpěry F1 (N / 1ks)", 10.0, 20000.0, 650.0, 10.0, key="t1_f")
+        
+        fitting_type = st.selectbox("Koncovky hlavní vzpěry", list(FITTING_DATA.keys()), index=2, key="t1_fit")
+        if fitting_type == "Vlastní (ruční zadání)":
+            k1 = st.number_input("Koncovka vana (mm)", 0.0, 200.0, 18.0, key="t1_k1")
+            k2 = st.number_input("Koncovka víko (mm)", 0.0, 200.0, 18.0, key="t1_k2")
+        else:
+            k1 = k2 = FITTING_DATA[fitting_type]
+            
+        Xb1 = st.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0, key="t1_xb")
+        Yb1 = st.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0, key="t1_yb")
+        lx1 = st.number_input("Víko X hlavní (mm)", -1000.0, 3000.0, 369.0, 5.0, key="t1_lx")
+        ly1 = st.number_input("Víko Y hlavní (mm)", -1000.0, 1000.0, 233.0, 5.0, key="t1_ly")
 
     # Výpočty pro záložku 1
     offset = STRUT_DATA[strut_type]["offset"]
@@ -131,7 +129,7 @@ with tab1:
     L_geom_0 = distance_mm(Xb1, Yb1, lx1, ly1)
     diff = L_geom_0 - L_com
 
-    st.title("🧮 Vzpěrovač")
+    st.divider()
 
     if abs(diff) <= 2.0:
         st.success(f"✅ Geometrie souhlasí! Stlačená vzpěra má {L_com:.1f} mm a zadané čepy jsou od sebe {L_geom_0:.1f} mm.")
@@ -313,7 +311,6 @@ with tab2:
     L_ext_a = (2.0 * S_a) + off_a + k1_a + k2_a
     L_com_a = L_ext_a - S_a
 
-    # Kontrola délkových rozmezí pro oba typy v zavřeném stavu
     dist_0_m = distance_mm(Xb_m, Yb_m, lx_m, ly_m)
     dist_0_a = distance_mm(Xb_a, Yb_a, lx_a, ly_a)
 
@@ -337,15 +334,19 @@ with tab2:
         theta_max_deg_2 = np.degrees(theta_max_rad_2)
         st.info(f"Maximální úhel otevření pro kombinaci vzpěr: **{theta_max_deg_2:.1f}°**")
 
+        def cg_xm_fn(th): return cg_x_mm * 0.001
+        def cg_ym_fn(th): return cg_y_mm * 0.001
+
+        def Tg_dual(theta):
+            return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
+
         def F_hand_dual(theta):
-            # Hlavní
             Xp_m, Yp_m = rotate_mm(lx_m, ly_m, theta)
             L_cur_m = distance_mm(Xb_m, Yb_m, Xp_m, Yp_m)
             ratio_m = np.clip((L_ext_m - L_cur_m) / S_m, 0.0, 1.0)
             Fm_act = F_nom_m * (1.0 + prog_m * ratio_m)
             d_m = signed_moment_arm_mm(Xb_m, Yb_m, lx_m, ly_m, theta)
             
-            # Pomocná
             Xp_a, Yp_a = rotate_mm(lx_a, ly_a, theta)
             L_cur_a = distance_mm(Xb_a, Yb_a, Xp_a, Yp_a)
             ratio_a = np.clip((L_ext_a - L_cur_a) / S_a, 0.0, 1.0)
@@ -355,7 +356,7 @@ with tab2:
             Ts_total = (2 * Fm_act * d_m) + (2 * Fa_act * d_a)
             h_arm = handle_moment_arm_m(theta)
             
-            return -(Tg(theta) + Ts_total) / h_arm
+            return -(Tg_dual(theta) + Ts_total) / h_arm
 
         col_p2, col_t2 = st.columns([2, 1])
         with col_p2:
@@ -364,7 +365,6 @@ with tab2:
             
             fig2, (ax2_1, ax2_2) = plt.subplots(1, 2, figsize=(10, 4.5))
             
-            # Kreslení víka
             corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
             corners_global = [rotate_mm(px, py, th_disp_2) for px, py in corners_local]
             xs_2 = [p[0] for p in corners_global] + [corners_global[0][0]]
@@ -379,13 +379,11 @@ with tab2:
             hx_2, hy_2 = rotate_mm(handle_x_mm, handle_y_mm, th_disp_2)
             ax2_1.plot(hx_2, hy_2, "go", markersize=5, label="Madlo")
             
-            # Hlavní vzpěra plot
             Xpm_2, Ypm_2 = rotate_mm(lx_m, ly_m, th_disp_2)
             ax2_1.plot([Xb_m, Xpm_2], [Yb_m, Ypm_2], "-", color="#1f77b4", linewidth=2, label="Hlavní vzpěra")
             ax2_1.plot(Xb_m, Yb_m, "s", color="#1f77b4")
             ax2_1.plot(Xpm_2, Ypm_2, "^", color="#1f77b4")
             
-            # Pomocná vzpěra plot
             Xpa_2, Ypa_2 = rotate_mm(lx_a, ly_a, th_disp_2)
             ax2_1.plot([Xb_a, Xpa_2], [Yb_a, Ypa_2], "-", color="#d62728", linewidth=2, label="Pomocná vzpěra")
             ax2_1.plot(Xb_a, Yb_a, "s", color="#d62728")
@@ -404,7 +402,6 @@ with tab2:
             ax2_1.set_title(f"Geometrie @ {th_disp_2_deg:.1f}°")
             ax2_1.legend(fontsize=7)
             
-            # Profil sil pro kombinaci
             thetas_2 = np.linspace(0, theta_max_rad_2, 100)
             forces_n_2 = np.array([F_hand_dual(t) for t in thetas_2])
             degs_2 = np.degrees(thetas_2)
