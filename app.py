@@ -13,8 +13,6 @@ st.markdown("""
         @page { size: A4 landscape; margin: 0mm; }
         header, footer, [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; }
     }
-    .warning-text { color: #ff4b4b; font-weight: bold; }
-    .success-text { color: #00cc66; font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -63,17 +61,14 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 def find_max_angle(Xb, Yb, lx, ly, L_ext):
-    # Hledáme úhel theta, pro který je vzdálenost čepů rovna L_ext (maximální vysunutí)
     def obj(theta):
         Xp, Yp = rotate_mm(lx, ly, theta)
         return distance_mm(Xb, Yb, Xp, Yp) - L_ext
-    
-    # Projdeme úhly od 0 do 180 stupňů a najdeme bod, kde se délka rovná L_ext
     try:
         max_rad = brentq(obj, 0.0, np.radians(180))
         return max_rad
     except ValueError:
-        return None # Pokud nedojde k protnutí (geometrie nedovolí plné otevření)
+        return None
 
 # ----------------------------------------------------------------------
 # UI - SIDEBAR
@@ -90,13 +85,13 @@ handle_x_mm = st.sidebar.number_input("Madlo X (mm od pantu)", 0.0, 3000.0, lid_
 handle_y_mm = st.sidebar.number_input("Madlo Y (mm od pantu)", -500.0, 1000.0, float(lid_height * 0.5), 5.0)
 
 st.sidebar.header("3) Výběr vzpěry")
-n_main = 2 # Pevně dané 2 hlavní vzpěry
-strut_type = st.sidebar.selectbox("Typ vzpěry", list(STRUT_DATA.keys()), index=4) # Default G10/23
+n_main = 2
+strut_type = st.sidebar.selectbox("Typ vzpěry", list(STRUT_DATA.keys()), index=4)
 S1 = st.sidebar.number_input("Zdvih vzpěry (mm)", 10.0, 1500.0, 300.0, 5.0)
 F_nom = st.sidebar.number_input("Jmenovitá síla vzpěry F1 (N / 1ks)", 10.0, 20000.0, 650.0, 10.0)
 
 st.sidebar.header("4) Koncovky")
-fitting_type = st.sidebar.selectbox("Typ koncovek", list(FITTING_DATA.keys()), index=2) # Default WG18
+fitting_type = st.sidebar.selectbox("Typ koncovek", list(FITTING_DATA.keys()), index=2)
 if fitting_type == "Vlastní (ruční zadání)":
     k1 = st.sidebar.number_input("Délka koncovky na vaně (mm)", 0.0, 200.0, 18.0)
     k2 = st.sidebar.number_input("Délka koncovky na víku (mm)", 0.0, 200.0, 18.0)
@@ -115,11 +110,9 @@ ly1 = st.sidebar.number_input("Víko - Y (mm)", -1000.0, 1000.0, 233.0, 5.0)
 offset = STRUT_DATA[strut_type]["offset"]
 progression = STRUT_DATA[strut_type]["progression"]
 
-# Vzorec: 2*zdvih + offset + koncovka1 + koncovka2
 L_ext = (2.0 * S1) + offset + k1 + k2
 L_com = L_ext - S1
 
-# Fyzická vzdálenost zadaných čepů v zavřeném stavu (0°)
 L_geom_0 = distance_mm(Xb1, Yb1, lx1, ly1)
 diff = L_geom_0 - L_com
 
@@ -128,13 +121,11 @@ diff = L_geom_0 - L_com
 # ----------------------------------------------------------------------
 st.title("🧮 Kontrola geometrie a sil plynových vzpěr")
 
-# Validace čepů
 if abs(diff) <= 2.0:
     st.success(f"✅ Geometrie souhlasí! Stlačená vzpěra má {L_com:.1f} mm a zadané čepy jsou od sebe {L_geom_0:.1f} mm.")
 else:
     st.error(f"⚠️ POZOR KOLIZE! Stlačená vzpěra má délku {L_com:.1f} mm, ale zadané čepy jsou od sebe {L_geom_0:.1f} mm. Rozdíl je {diff:.1f} mm.")
 
-# Nalezení max úhlu
 theta_max_rad = find_max_angle(Xb1, Yb1, lx1, ly1, L_ext)
 
 if theta_max_rad is None or theta_max_rad <= 0:
@@ -143,7 +134,6 @@ if theta_max_rad is None or theta_max_rad <= 0:
 
 theta_max_deg = np.degrees(theta_max_rad)
 
-# Zobrazení délek a úhlu
 col_i1, col_i2, col_i3, col_i4 = st.columns(4)
 col_i1.metric("Maximální úhel otevření (doraz)", f"{theta_max_deg:.1f}°")
 col_i2.metric("Roztažená délka vzpěry", f"{L_ext:.1f} mm")
@@ -152,9 +142,6 @@ col_i4.metric("Síla ve stlačeném stavu (1ks)", f"{F_nom * (1 + progression):.
 
 st.divider()
 
-# ----------------------------------------------------------------------
-# VÝPOČET SILOVÉHO PROFILU
-# ----------------------------------------------------------------------
 cg_xm, cg_ym = cg_x_mm * 0.001, cg_y_mm * 0.001
 
 def Tg(theta):
@@ -166,8 +153,6 @@ def handle_moment_arm_m(theta):
     return r * 0.001 if r > 1e-6 else 1e-6
 
 def get_actual_strut_force(L_current):
-    # current_stroke = L_current - L_com
-    # ratio of compression = (S1 - current_stroke) / S1
     compression_ratio = np.clip((L_ext - L_current) / S1, 0.0, 1.0)
     return F_nom * (1.0 + progression * compression_ratio)
 
@@ -183,19 +168,14 @@ def F_hand(theta):
     
     return -(Tg(theta) + Ts_main) / h_arm
 
-# ----------------------------------------------------------------------
-# GRAFY A TABULKA
-# ----------------------------------------------------------------------
 col_plots, col_table = st.columns([2, 1])
 
 with col_plots:
-    # 3D/2D Slider pro úhel
     theta_disp_deg = st.slider("Zobrazit geometrii pro úhel (°)", 0.0, float(theta_max_deg), 0.0, step=1.0)
     theta_disp = np.radians(theta_disp_deg)
     
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4.5))
     
-    # Kreslení geometrie
     corners_local = [(0, 0), (lid_length, 0), (lid_length, lid_height), (0, lid_height)]
     corners_global = [rotate_mm(px, py, theta_disp) for px, py in corners_local]
     xs = [p[0] for p in corners_global] + [corners_global[0][0]]
@@ -228,7 +208,6 @@ with col_plots:
     ax1.set_title(f"Geometrie @ {theta_disp_deg:.1f}°")
     ax1.legend(fontsize=8)
     
-    # Kreslení silového profilu
     thetas = np.linspace(0, theta_max_rad, 100)
     forces_n = np.array([F_hand(t) for t in thetas])
     degs = np.degrees(thetas)
@@ -251,7 +230,6 @@ with col_plots:
 with col_table:
     st.markdown("### Tabulka sil")
     
-    # Přesně odstupňované úhly po 10 + maximální úhel
     angles_to_check = list(np.arange(0, theta_max_deg, 10.0))
     if angles_to_check[-1] != theta_max_deg:
         angles_to_check.append(theta_max_deg)
@@ -266,7 +244,8 @@ with col_table:
     st.dataframe(df, use_container_width=True, hide_index=True)
     
     st.markdown("### Kontrola vlastního úhlu")
-    custom_ang = st.number_input("Zadej úhel (°)", 0.0, float(theta_max_deg), 45.0, 1.0)
+    default_custom_ang = min(45.0, float(theta_max_deg))
+    custom_ang = st.number_input("Zadej úhel (°)", 0.0, float(theta_max_deg), default_custom_ang, 1.0)
     custom_f = F_hand(np.radians(custom_ang))
     color = "green" if custom_f < 0 else "red"
     st.markdown(f"Síla při **{custom_ang}°**: <span style='color:{color}; font-size: 1.2em; font-weight:bold;'>{custom_f:.1f} N</span>", unsafe_allow_html=True)
