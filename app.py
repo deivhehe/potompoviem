@@ -127,14 +127,16 @@ with tab1:
     L_com = L_ext - S1
 
     L_geom_0 = distance_mm(Xb1, Yb1, lx1, ly1)
-    diff = L_geom_0 - L_com
+    
+    # NOVÁ KONTROLA: Zda se čepy vejdou do rozsahu vzpěry
+    valid_geometry = (L_com <= L_geom_0 <= L_ext)
 
     st.divider()
 
-    if abs(diff) <= 2.0:
-        st.success(f"✅ Geometrie souhlasí! Stlačená vzpěra má {L_com:.1f} mm a zadané čepy jsou od sebe {L_geom_0:.1f} mm.")
+    if valid_geometry:
+        st.success(f"✅ Geometrie souhlasí! Zadané čepy jsou od sebe {L_geom_0:.1f} mm v zavřeném stavu, což je bezpečně v rozsahu vzpěry ({L_com:.1f} až {L_ext:.1f} mm).")
     else:
-        st.error(f"⚠️ POZOR KOLIZE! Stlačená vzpěra má délku {L_com:.1f} mm, ale zadané čepy jsou od sebe {L_geom_0:.1f} mm. Rozdíl je {diff:.1f} mm.")
+        st.error(f"⚠️ POZOR KOLIZE! Zadané čepy jsou od sebe {L_geom_0:.1f} mm. Tento rozměr je mimo povolený rozsah vzpěry ({L_com:.1f} až {L_ext:.1f} mm).")
 
     theta_max_rad = find_max_angle_single(Xb1, Yb1, lx1, ly1, L_ext)
 
