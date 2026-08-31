@@ -7,36 +7,6 @@ import pandas as pd
 
 st.set_page_config(page_title="Vzpěrovač", layout="wide")
 
-st.markdown("""
-    <style>
-    @media print {
-        @page { size: A4 landscape; margin: 10mm; }
-        /* Schováme veškeré ovládací prvky Streamlitu, sidebary a tlačítka */
-        header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, button, .print-instruction { 
-            display: none !important; 
-        }
-        /* Roztáhneme hlavní obsah přes celou stránku */
-        [data-testid="stMain"] { 
-            width: 100% !important; 
-            margin: 0 !important; 
-            padding: 0 !important; 
-        }
-        body { 
-            background-color: white !important; 
-            color: black !important; 
-        }
-    }
-    .print-instruction {
-        background-color: #f0f2f6;
-        padding: 10px 15px;
-        border-radius: 5px;
-        margin-bottom: 15px;
-        border-left: 5px solid #ff4b4b;
-        font-size: 0.95em;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 G = 9.81  # m/s^2
 
 # ----------------------------------------------------------------------
@@ -120,12 +90,6 @@ tab1, tab2 = st.tabs(["2× Hlavní vzpěra", "Hlavní + Pomocná vzpěra"])
 
 with tab1:
     st.title("🧮 Vzpěrovač (2× Hlavní vzpěra)")
-    
-    st.markdown("""
-        <div class="print-instruction">
-            <b>💡 Jak vytisknout protokol:</b> Stiskněte klávesovou zkratku <b>Ctrl + P</b> (nebo Cmd + P na Macu). V tiskovém dialogu zvolte rozložení na <b>šířku (landscape)</b>. Boční menu a ovládací prvky se automaticky skryjí a vytiskne se čistý výsledek s grafy a tabulkou.
-        </div>
-    """, unsafe_allow_html=True)
     
     col_single = st.columns(1)[0]
     with col_single:
@@ -287,15 +251,33 @@ with tab1:
         color = "green" if custom_f < 0 else "red"
         st.markdown(f"Síla při **{custom_ang}°**: <span style='color:{color}; font-size: 1.2em; font-weight:bold;'>{custom_f:.1f} N</span>", unsafe_allow_html=True)
 
+    # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ ---
+    st.divider()
+    report_lines = [
+        "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Vzpěrovač) ===",
+        f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
+        f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+        f"Hlavní vzpěra: {strut_type}, Zdvih = {S1} mm, Jmenovitá síla = {F_nom} N, Koncovky = {k1} / {k2} mm",
+        f"Pozice čepů: Vana [{Xb1}, {Yb1}] mm, Víko [{lx1}, {ly1}] mm",
+        f"Výsledky: Max. úhel otevření = {theta_max_deg:.1f}°, Roztažená délka = {L_ext:.1f} mm, Stlačená délka = {L_com:.1f} mm",
+        "",
+        "Tabulka sil:"
+    ]
+    for row in data:
+        report_lines.append(f" - Úhel: {row['Úhel (°)']} | Síla na madlu: {row['Síla na madlu (N)']} N | Stav: {row['Stav']}")
+    
+    report_text = "\n".join(report_lines)
+    st.download_button(
+        label="📥 Stáhnout výstupní protokol (TXT)",
+        data=report_text,
+        file_name="protokolu_vzpery_hlavni.txt",
+        mime="text/plain",
+        key="download_t1"
+    )
+
 with tab2:
     st.title("🧮 Vzpěrovač (Hlavní + Pomocná vzpěra)")
     
-    st.markdown("""
-        <div class="print-instruction">
-            <b>💡 Jak vytisknout protokol:</b> Stiskněte klávesovou zkratku <b>Ctrl + P</b> (nebo Cmd + P na Macu). V tiskovém dialogu zvolte rozložení na <b>šířku (landscape)</b>. Boční menu a ovládací prvky se automaticky skryjí a vytiskne se čistý výsledek s grafy a tabulkou.
-        </div>
-    """, unsafe_allow_html=True)
-        
     col_m, col_a = st.columns(2)
     with col_m:
         st.markdown("### Hlavní vzpěra (2 ks)")
@@ -472,3 +454,27 @@ with tab2:
             custom_f_2 = F_hand_dual(np.radians(custom_ang_2))
             color_2 = "green" if custom_f_2 < 0 else "red"
             st.markdown(f"Síla při **{custom_ang_2}°**: <span style='color:{color_2}; font-size: 1.2em; font-weight:bold;'>{custom_f_2:.1f} N</span>", unsafe_allow_html=True)
+
+    # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ (ZÁLOŽKA 2) ---
+    st.divider()
+    report_lines_2 = [
+        "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Hlavní + Pomocná) ===",
+        f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
+        f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+        f"Hlavní vzpěra: {strut_type_m}, Zdvih = {S_m} mm, Síla = {F_nom_m} N, Koncovky = {k1_m} / {k2_m} mm",
+        f"Pomocná vzpěra: {strut_type_a}, Zdvih = {S_a} mm, Síla = {F_nom_a} N, Koncovky = {k1_a} / {k2_a} mm",
+        f"Výsledky: Max. úhel otevření = {theta_max_deg_2:.1f}°",
+        "",
+        "Tabulka sil:"
+    ]
+    for row in data_2:
+        report_lines_2.append(f" - Úhel: {row['Úhel (°)']} | Síla na madlu: {row['Síla na madlu (N)']} N | Stav: {row['Stav']}")
+    
+    report_text_2 = "\n".join(report_lines_2)
+    st.download_button(
+        label="📥 Stáhnout výstupní protokol (TXT)",
+        data=report_text_2,
+        file_name="protokol_vzpery_kombinace.txt",
+        mime="text/plain",
+        key="download_t2"
+    )
