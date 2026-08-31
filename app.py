@@ -11,18 +11,28 @@ st.markdown("""
     <style>
     @media print {
         @page { size: A4 landscape; margin: 10mm; }
-        header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, button { display: none !important; }
-        body { background-color: white; color: black; }
+        /* Schováme veškeré ovládací prvky Streamlitu, sidebary a tlačítka */
+        header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, button, .print-instruction { 
+            display: none !important; 
+        }
+        /* Roztáhneme hlavní obsah přes celou stránku */
+        [data-testid="stMain"] { 
+            width: 100% !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+        }
+        body { 
+            background-color: white !important; 
+            color: black !important; 
+        }
     }
-    .print-btn {
-        background-color: #ff4b4b;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 0.5rem;
-        border: none;
-        font-weight: bold;
-        cursor: pointer;
-        margin-bottom: 1rem;
+    .print-instruction {
+        background-color: #f0f2f6;
+        padding: 10px 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+        border-left: 5px solid #ff4b4b;
+        font-size: 0.95em;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -111,8 +121,11 @@ tab1, tab2 = st.tabs(["2× Hlavní vzpěra", "Hlavní + Pomocná vzpěra"])
 with tab1:
     st.title("🧮 Vzpěrovač (2× Hlavní vzpěra)")
     
-    if st.button("🖨️ Vytisknout / Uložit do PDF", key="print_t1"):
-        st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+    st.markdown("""
+        <div class="print-instruction">
+            <b>💡 Jak vytisknout protokol:</b> Stiskněte klávesovou zkratku <b>Ctrl + P</b> (nebo Cmd + P na Macu). V tiskovém dialogu zvolte rozložení na <b>šířku (landscape)</b>. Boční menu a ovládací prvky se automaticky skryjí a vytiskne se čistý výsledek s grafy a tabulkou.
+        </div>
+    """, unsafe_allow_html=True)
     
     col_single = st.columns(1)[0]
     with col_single:
@@ -277,8 +290,11 @@ with tab1:
 with tab2:
     st.title("🧮 Vzpěrovač (Hlavní + Pomocná vzpěra)")
     
-    if st.button("🖨️ Vytisknout / Uložit do PDF", key="print_t2"):
-        st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+    st.markdown("""
+        <div class="print-instruction">
+            <b>💡 Jak vytisknout protokol:</b> Stiskněte klávesovou zkratku <b>Ctrl + P</b> (nebo Cmd + P na Macu). V tiskovém dialogu zvolte rozložení na <b>šířku (landscape)</b>. Boční menu a ovládací prvky se automaticky skryjí a vytiskne se čistý výsledek s grafy a tabulkou.
+        </div>
+    """, unsafe_allow_html=True)
         
     col_m, col_a = st.columns(2)
     with col_m:
