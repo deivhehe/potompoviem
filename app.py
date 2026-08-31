@@ -10,8 +10,19 @@ st.set_page_config(page_title="Vzpěrovač", layout="wide")
 st.markdown("""
     <style>
     @media print {
-        @page { size: A4 landscape; margin: 0mm; }
-        header, footer, [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; }
+        @page { size: A4 landscape; margin: 10mm; }
+        header, footer, [data-testid="stSidebar"], [data-testid="stHeader"], .stTabs, button { display: none !important; }
+        body { background-color: white; color: black; }
+    }
+    .print-btn {
+        background-color: #ff4b4b;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        border: none;
+        font-weight: bold;
+        cursor: pointer;
+        margin-bottom: 1rem;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -100,6 +111,9 @@ tab1, tab2 = st.tabs(["2× Hlavní vzpěra", "Hlavní + Pomocná vzpěra"])
 with tab1:
     st.title("🧮 Vzpěrovač (2× Hlavní vzpěra)")
     
+    if st.button("🖨️ Vytisknout / Uložit do PDF", key="print_t1"):
+        st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+    
     col_single = st.columns(1)[0]
     with col_single:
         st.markdown("### Hlavní vzpěra (2 ks)")
@@ -127,8 +141,6 @@ with tab1:
     L_com = L_ext - S1
 
     L_geom_0 = distance_mm(Xb1, Yb1, lx1, ly1)
-    
-    # NOVÁ KONTROLA: Zda se čepy vejdou do rozsahu vzpěry
     valid_geometry = (L_com <= L_geom_0 <= L_ext)
 
     st.divider()
@@ -265,6 +277,9 @@ with tab1:
 with tab2:
     st.title("🧮 Vzpěrovač (Hlavní + Pomocná vzpěra)")
     
+    if st.button("🖨️ Vytisknout / Uložit do PDF", key="print_t2"):
+        st.markdown("<script>window.print();</script>", unsafe_allow_html=True)
+        
     col_m, col_a = st.columns(2)
     with col_m:
         st.markdown("### Hlavní vzpěra (2 ks)")
@@ -335,9 +350,6 @@ with tab2:
     else:
         theta_max_deg_2 = np.degrees(theta_max_rad_2)
         st.info(f"Maximální úhel otevření pro kombinaci vzpěr: **{theta_max_deg_2:.1f}°**")
-
-        def cg_xm_fn(th): return cg_x_mm * 0.001
-        def cg_ym_fn(th): return cg_y_mm * 0.001
 
         def Tg_dual(theta):
             return -lid_mass * G * (cg_xm * np.cos(theta) - cg_ym * np.sin(theta))
