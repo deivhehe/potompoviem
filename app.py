@@ -2,7 +2,7 @@ import numpy as np
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-from scipy.optimize import brentq
+from scipy.optimize import minimize_scalar
 import pandas as pd
 
 st.set_page_config(page_title="Vzpěrovač", layout="wide")
@@ -52,14 +52,26 @@ def signed_moment_arm_mm(Xb_mm, Yb_mm, lx_mm, ly_mm, theta):
     return (Xb_mm * Yp_mm - Yb_mm * Xp_mm) / (L_mm * 1000.0)
 
 def find_max_angle_single(Xb, Yb, lx, ly, L_ext):
-    def obj(theta):
-        Xp, Yp = rotate_mm(lx, ly, theta)
-        return distance_mm(Xb, Yb, Xp, Yp) - L_ext
-    try:
-        max_rad = brentq(obj, 0.0, np.radians(180))
-        return max_rad
-    except ValueError:
-        return None
+    # Prohledáme jemnou síť úhlů od 0 do 180 stupňů a najdeme, kde vzdálenost čepů poprvé dosáhne L_ext
+    thetas = np.linspace(0.0, np.radians(180), 361)
+    for i in range(len(thetas) - 1):
+        th1, th2 = thetas[i], themes_next = thetas[i+1] if i+1 < len(thetas) else thetas[i]
+        # spočítáme vzdálenosti
+        Xp1, Yp1 = rotate_mm(lx, ly, thetas[i])
+        d1 = distance_mm(Xb, Yb, Xp1, Yp1)
+        Xp2, Yp2 = rotate_mm(lx, ly, thetas[i+1])
+        d2 = distance_mm(Xb, Yb, Xp2, Yp2)
+        
+        # Pokud L_ext padá mezi d1 a d2, interpolujeme přesný úhel
+        if (d1 - L_ext) * (d2 - L_ext) <= 0:
+            # Lineární interpolace pro přesný přechod
+            if abs(d2 - d1) > 1e-6:
+                frac = (L_ext - d1) / (d2 - d1)
+                return thetas[i] + frac * (thetas[i+1] - thetas[i])
+            return thetas[i]
+    
+    # Pokud nedosáhne L_ext, podíváme se, zda není po celou dobu delší nebo kratší, případně vrátíme None
+    return None
 
 def find_max_angle_dual(Xb1, Yb1, lx1, ly1, L_ext1, Xb2, Yb2, lx2, ly2, L_ext2):
     best_rad = np.radians(180)
@@ -251,12 +263,11 @@ with tab1:
         color = "green" if custom_f < 0 else "red"
         st.markdown(f"Síla při **{custom_ang}°**: <span style='color:{color}; font-size: 1.2em; font-weight:bold;'>{custom_f:.1f} N</span>", unsafe_allow_html=True)
 
-    # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ ---
     st.divider()
     report_lines = [
         "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Vzpěrovač) ===",
         f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
-        f"Těžiště X, Y: {cg_x_mm} mm, {cg_ym} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+        f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
         f"Hlavní vzpěra: {strut_type}, Zdvih = {S1} mm, Jmenovitá síla = {F_nom} N, Koncovky = {k1} / {k2} mm",
         f"Pozice čepů: Vana [{Xb1}, {Yb1}] mm, Víko [{lx1}, {ly1}] mm",
         f"Výsledky: Max. úhel otevření = {theta_max_deg:.1f}°, Roztažená délka = {L_ext:.1f} mm, Stlačená délka = {L_com:.1f} mm",
@@ -315,7 +326,6 @@ with tab2:
         lx_a = st.number_input("Víko X pomocná (mm)", -1000.0, 3000.0, 150.0, 5.0, key="t2_a_lx")
         ly_a = st.number_input("Víko Y pomocná (mm)", -1000.0, 1000.0, 100.0, 5.0, key="t2_a_ly")
 
-    # Výpočty pro záložku 2
     off_m = STRUT_DATA[strut_type_m]["offset"]
     prog_m = STRUT_DATA[strut_type_m]["progression"]
     L_ext_m = (2.0 * S_m) + off_m + k1_m + k2_m
@@ -344,7 +354,7 @@ with tab2:
     theta_max_rad_2 = find_max_angle_dual(Xb_m, Yb_m, lx_m, ly_m, L_ext_m, Xb_a, Yb_a, lx_a, ly_a, L_ext_a)
 
     if theta_max_rad_2 is None or theta_max_rad_2 <= 0:
-        st.error("❌ Geometrie kombinace vzpěr neumožňuje otevření.")
+        st.error("❌ Geometrie kombinace vzpěr neumožňuje otevření. Zkontrolujte zdvih nebo polohy čepů vzpěr.")
     else:
         theta_max_deg_2 = np.degrees(theta_max_rad_2)
         st.info(f"Maximální úhel otevření pro kombinaci vzpěr: **{theta_max_deg_2:.1f}°**")
@@ -455,12 +465,11 @@ with tab2:
             color_2 = "green" if custom_f_2 < 0 else "red"
             st.markdown(f"Síla při **{custom_ang_2}°**: <span style='color:{color_2}; font-size: 1.2em; font-weight:bold;'>{custom_f_2:.1f} N</span>", unsafe_allow_html=True)
 
-        # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ (ZÁLOŽKA 2) ---
         st.divider()
         report_lines_2 = [
             "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Hlavní + Pomocná) ===",
             f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
-            f"Těžiště X, Y: {cg_x_mm} mm, {cg_ym} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+            f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
             f"Hlavní vzpěra: {strut_type_m}, Zdvih = {S_m} mm, Síla = {F_nom_m} N, Koncovky = {k1_m} / {k2_m} mm",
             f"Pomocná vzpěra: {strut_type_a}, Zdvih = {S_a} mm, Síla = {F_nom_a} N, Koncovky = {k1_a} / {k2_a} mm",
             f"Výsledky: Max. úhel otevření = {theta_max_deg_2:.1f}°",
