@@ -256,7 +256,7 @@ with tab1:
     report_lines = [
         "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Vzpěrovač) ===",
         f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
-        f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+        f"Těžiště X, Y: {cg_x_mm} mm, {cg_ym} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
         f"Hlavní vzpěra: {strut_type}, Zdvih = {S1} mm, Jmenovitá síla = {F_nom} N, Koncovky = {k1} / {k2} mm",
         f"Pozice čepů: Vana [{Xb1}, {Yb1}] mm, Víko [{lx1}, {ly1}] mm",
         f"Výsledky: Max. úhel otevření = {theta_max_deg:.1f}°, Roztažená délka = {L_ext:.1f} mm, Stlačená délka = {L_com:.1f} mm",
@@ -270,7 +270,7 @@ with tab1:
     st.download_button(
         label="📥 Stáhnout výstupní protokol (TXT)",
         data=report_text,
-        file_name="protokolu_vzpery_hlavni.txt",
+        file_name="protokol_vzpery_hlavni.txt",
         mime="text/plain",
         key="download_t1"
     )
@@ -455,26 +455,26 @@ with tab2:
             color_2 = "green" if custom_f_2 < 0 else "red"
             st.markdown(f"Síla při **{custom_ang_2}°**: <span style='color:{color_2}; font-size: 1.2em; font-weight:bold;'>{custom_f_2:.1f} N</span>", unsafe_allow_html=True)
 
-    # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ (ZÁLOŽKA 2) ---
-    st.divider()
-    report_lines_2 = [
-        "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Hlavní + Pomocná) ===",
-        f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
-        f"Těžiště X, Y: {cg_x_mm} mm, {cg_y_mm} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
-        f"Hlavní vzpěra: {strut_type_m}, Zdvih = {S_m} mm, Síla = {F_nom_m} N, Koncovky = {k1_m} / {k2_m} mm",
-        f"Pomocná vzpěra: {strut_type_a}, Zdvih = {S_a} mm, Síla = {F_nom_a} N, Koncovky = {k1_a} / {k2_a} mm",
-        f"Výsledky: Max. úhel otevření = {theta_max_deg_2:.1f}°",
-        "",
-        "Tabulka sil:"
-    ]
-    for row in data_2:
-        report_lines_2.append(f" - Úhel: {row['Úhel (°)']} | Síla na madlu: {row['Síla na madlu (N)']} N | Stav: {row['Stav']}")
-    
-    report_text_2 = "\n".join(report_lines_2)
-    st.download_button(
-        label="📥 Stáhnout výstupní protokol (TXT)",
-        data=report_text_2,
-        file_name="protokol_vzpery_kombinace.txt",
-        mime="text/plain",
-        key="download_t2"
-    )
+        # --- VYGENEROVÁNÍ TEXTOVÉHO PROTOKOLU KE STAŽENÍ (ZÁLOŽKA 2) ---
+        st.divider()
+        report_lines_2 = [
+            "=== PROTOKOL VÝPOČTU PLYNOVÝCH VZPĚR (Hlavní + Pomocná) ===",
+            f"Parametry víka: Délka = {lid_length} mm, Výška = {lid_height} mm, Hmotnost = {lid_mass} kg",
+            f"Těžiště X, Y: {cg_x_mm} mm, {cg_ym} mm | Madlo X, Y: {handle_x_mm} mm, {handle_y_mm} mm",
+            f"Hlavní vzpěra: {strut_type_m}, Zdvih = {S_m} mm, Síla = {F_nom_m} N, Koncovky = {k1_m} / {k2_m} mm",
+            f"Pomocná vzpěra: {strut_type_a}, Zdvih = {S_a} mm, Síla = {F_nom_a} N, Koncovky = {k1_a} / {k2_a} mm",
+            f"Výsledky: Max. úhel otevření = {theta_max_deg_2:.1f}°",
+            "",
+            "Tabulka sil:"
+        ]
+        for row in data_2:
+            report_lines_2.append(f" - Úhel: {row['Úhel (°)']} | Síla na madlu: {row['Síla na madlu (N)']} N | Stav: {row['Stav']}")
+        
+        report_text_2 = "\n".join(report_lines_2)
+        st.download_button(
+            label="📥 Stáhnout výstupní protokol (TXT)",
+            data=report_text_2,
+            file_name="protokol_vzpery_kombinace.txt",
+            mime="text/plain",
+            key="download_t2"
+        )
