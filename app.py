@@ -116,17 +116,19 @@ with tab1:
         else:
             k1 = k2 = FITTING_DATA[fitting_type]
             
+        # Výpočet kontrolní délky hned po zadání parametrů vzpěry
+        offset = STRUT_DATA[strut_type]["offset"]
+        progression = STRUT_DATA[strut_type]["progression"]
+        L_ext = (2.0 * S1) + offset + k1 + k2
+        L_com = L_ext - S1
+        
+        # Zobrazení kontrolní délky
+        st.info(f"📏 **Kontrolní délka vzpěry:** Roztažená = **{L_ext:.1f} mm** | Stlačená = **{L_com:.1f} mm**")
+            
         Xb1 = st.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0, key="t1_xb")
         Yb1 = st.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0, key="t1_yb")
         lx1 = st.number_input("Víko X hlavní (mm)", -1000.0, 3000.0, 369.0, 5.0, key="t1_lx")
         ly1 = st.number_input("Víko Y hlavní (mm)", -1000.0, 1000.0, 233.0, 5.0, key="t1_ly")
-
-    # Výpočty pro záložku 1
-    offset = STRUT_DATA[strut_type]["offset"]
-    progression = STRUT_DATA[strut_type]["progression"]
-
-    L_ext = (2.0 * S1) + offset + k1 + k2
-    L_com = L_ext - S1
 
     L_geom_0 = distance_mm(Xb1, Yb1, lx1, ly1)
     valid_geometry = (L_com <= L_geom_0 <= L_ext)
@@ -302,6 +304,14 @@ with tab2:
         else:
             k1_m = k2_m = FITTING_DATA[fit_m]
             
+        # Výpočet kontrolní délky hned po zadání parametrů hlavní vzpěry
+        off_m = STRUT_DATA[strut_type_m]["offset"]
+        prog_m = STRUT_DATA[strut_type_m]["progression"]
+        L_ext_m = (2.0 * S_m) + off_m + k1_m + k2_m
+        L_com_m = L_ext_m - S_m
+        
+        st.info(f"📏 **Kontrolní délka hlavní vzpěry:** Roztažená = **{L_ext_m:.1f} mm** | Stlačená = **{L_com_m:.1f} mm**")
+            
         Xb_m = st.number_input("Vana X hlavní (mm)", -1000.0, 3000.0, 585.0, 5.0, key="t2_m_xb")
         Yb_m = st.number_input("Vana Y hlavní (mm)", -1000.0, 1000.0, -111.0, 5.0, key="t2_m_yb")
         lx_m = st.number_input("Víko X hlavní (mm)", -1000.0, 3000.0, 369.0, 5.0, key="t2_m_lx")
@@ -320,20 +330,18 @@ with tab2:
         else:
             k1_a = k2_a = FITTING_DATA[fit_a]
             
+        # Výpočet kontrolní délky hned po zadání parametrů pomocné vzpěry
+        off_a = STRUT_DATA[strut_type_a]["offset"]
+        prog_a = STRUT_DATA[strut_type_a]["progression"]
+        L_ext_a = (2.0 * S_a) + off_a + k1_a + k2_a
+        L_com_a = L_ext_a - S_a
+        
+        st.info(f"📏 **Kontrolní délka pomocné vzpěry:** Roztažená = **{L_ext_a:.1f} mm** | Stlačená = **{L_com_a:.1f} mm**")
+            
         Xb_a = st.number_input("Vana X pomocná (mm)", -1000.0, 3000.0, 200.0, 5.0, key="t2_a_xb")
         Yb_a = st.number_input("Vana Y pomocná (mm)", -1000.0, 1000.0, -150.0, 5.0, key="t2_a_yb")
         lx_a = st.number_input("Víko X pomocná (mm)", -1000.0, 3000.0, 150.0, 5.0, key="t2_a_lx")
         ly_a = st.number_input("Víko Y pomocná (mm)", -1000.0, 1000.0, 100.0, 5.0, key="t2_a_ly")
-
-    off_m = STRUT_DATA[strut_type_m]["offset"]
-    prog_m = STRUT_DATA[strut_type_m]["progression"]
-    L_ext_m = (2.0 * S_m) + off_m + k1_m + k2_m
-    L_com_m = L_ext_m - S_m
-
-    off_a = STRUT_DATA[strut_type_a]["offset"]
-    prog_a = STRUT_DATA[strut_type_a]["progression"]
-    L_ext_a = (2.0 * S_a) + off_a + k1_a + k2_a
-    L_com_a = L_ext_a - S_a
 
     dist_0_m = distance_mm(Xb_m, Yb_m, lx_m, ly_m)
     dist_0_a = distance_mm(Xb_a, Yb_a, lx_a, ly_a)
