@@ -55,7 +55,6 @@ def find_max_angle_single(Xb, Yb, lx, ly, L_ext):
     # Prohledáme jemnou síť úhlů od 0 do 180 stupňů a najdeme, kde vzdálenost čepů poprvé dosáhne L_ext
     thetas = np.linspace(0.0, np.radians(180), 361)
     for i in range(len(thetas) - 1):
-        th1, th2 = thetas[i], themes_next = thetas[i+1] if i+1 < len(thetas) else thetas[i]
         # spočítáme vzdálenosti
         Xp1, Yp1 = rotate_mm(lx, ly, thetas[i])
         d1 = distance_mm(Xb, Yb, Xp1, Yp1)
